@@ -2,5 +2,5 @@ services:
   - type: web
     name: ineos-fleet-app
     runtime: python
-    buildCommand: pip install -r backend/requirements.txt && pip install psycopg2-binary
+    buildCommand: pip install -r backend/requirements.txt
     startCommand: bash start.sh
