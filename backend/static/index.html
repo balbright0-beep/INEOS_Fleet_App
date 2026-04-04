@@ -828,7 +828,95 @@ input[type="file"]{display:none}
 <!-- Toast -->
 <div class="toast" id="toast"></div>
 
+<!-- Login Overlay -->
+<div id="login-overlay" style="position:fixed;inset:0;z-index:99999;background:var(--charcoal);display:flex;align-items:center;justify-content:center">
+  <div style="background:var(--white);border-radius:4px;padding:40px;width:380px;text-align:center">
+    <div style="display:flex;align-items:center;justify-content:center;gap:8px;margin-bottom:4px">
+      <div style="width:4px;height:28px;background:var(--flare-red);border-radius:2px"></div>
+      <span style="font-family:var(--font-title);font-size:22px;letter-spacing:1px">INEOS GRENADIER</span>
+    </div>
+    <p style="color:var(--iron-smoke);font-size:13px;margin-bottom:24px">Fleet Management System</p>
+    <input id="login-user" placeholder="Username" style="width:100%;padding:10px 12px;border:1px solid var(--dove);border-radius:2px;font-size:14px;margin-bottom:12px;font-family:var(--font-body)">
+    <input id="login-pass" type="password" placeholder="Password" style="width:100%;padding:10px 12px;border:1px solid var(--dove);border-radius:2px;font-size:14px;margin-bottom:16px;font-family:var(--font-body)">
+    <div id="login-error" style="color:var(--error);font-size:12px;margin-bottom:12px;display:none"></div>
+    <button onclick="doLogin()" style="width:100%;padding:10px;background:var(--charcoal);color:var(--white);border:none;border-radius:2px;font-size:14px;font-weight:600;cursor:pointer;font-family:var(--font-body)">Sign In</button>
+    <p style="color:var(--silver-dust);font-size:11px;margin-top:16px">Default: admin / admin123</p>
+  </div>
+</div>
+
 <script>
+// ===== SERVER SYNC LAYER =====
+let _authToken = sessionStorage.getItem('fleet_token');
+
+async function doLogin() {
+  const user = document.getElementById('login-user').value;
+  const pass = document.getElementById('login-pass').value;
+  const errEl = document.getElementById('login-error');
+  errEl.style.display = 'none';
+  try {
+    const r = await fetch('/api/login', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({username: user, password: pass})
+    });
+    if (!r.ok) { errEl.textContent = 'Invalid credentials'; errEl.style.display = 'block'; return; }
+    const data = await r.json();
+    _authToken = data.token;
+    sessionStorage.setItem('fleet_token', data.token);
+    document.getElementById('login-overlay').style.display = 'none';
+    await syncFromServer();
+  } catch (e) { errEl.textContent = 'Connection error'; errEl.style.display = 'block'; }
+}
+
+document.getElementById('login-pass').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
+
+async function syncFromServer() {
+  if (!_authToken) return;
+  try {
+    const r = await fetch('/api/db', { headers: {'Authorization': 'Bearer ' + _authToken} });
+    if (!r.ok) return;
+    const data = await r.json();
+    if (data && data.vehicles && data.vehicles.length > 0) {
+      if (data.vehicles) { await dbClear('vehicles'); for (const v of data.vehicles) await dbPut('vehicles', v); }
+      if (data.drivers) { await dbClear('drivers'); for (const d of data.drivers) await dbPut('drivers', d); }
+      if (data.dealers) { await dbClear('dealers'); for (const d of data.dealers) await dbPut('dealers', d); }
+      if (data.settings) { await dbClear('settings'); for (const s of data.settings) await dbPut('settings', s); }
+      if (data.auditLog) { await dbClear('auditLog'); for (const a of data.auditLog) await dbPut('auditLog', a); }
+      renderPage(currentPage);
+    }
+  } catch (e) { console.log('Sync from server failed:', e); }
+}
+
+async function syncToServer() {
+  if (!_authToken) return;
+  try {
+    const payload = {
+      vehicles: await dbGetAll('vehicles'),
+      drivers: await dbGetAll('drivers'),
+      dealers: await dbGetAll('dealers'),
+      settings: await dbGetAll('settings'),
+      auditLog: await dbGetAll('auditLog'),
+    };
+    await fetch('/api/db', {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + _authToken},
+      body: JSON.stringify(payload)
+    });
+  } catch (e) { console.log('Sync to server failed:', e); }
+}
+
+// Auto-sync to server after every IndexedDB write (debounced)
+let _syncTimer;
+function scheduleSyncToServer() {
+  clearTimeout(_syncTimer);
+  _syncTimer = setTimeout(syncToServer, 2000);
+}
+
+// Check if already logged in
+if (_authToken) {
+  document.getElementById('login-overlay').style.display = 'none';
+}
+
 // ===== DATABASE LAYER =====
 const DB_NAME = 'INEOSFleetDB';
 const DB_VERSION = 1;
@@ -858,7 +946,7 @@ function dbPut(store, data) {
   return new Promise((resolve, reject) => {
     const tx = db.transaction(store, 'readwrite');
     tx.objectStore(store).put(data);
-    tx.oncomplete = () => resolve();
+    tx.oncomplete = () => { scheduleSyncToServer(); resolve(); };
     tx.onerror = (e) => reject(e.target.error);
   });
 }
@@ -885,7 +973,7 @@ function dbDelete(store, key) {
   return new Promise((resolve, reject) => {
     const tx = db.transaction(store, 'readwrite');
     tx.objectStore(store).delete(key);
-    tx.oncomplete = () => resolve();
+    tx.oncomplete = () => { scheduleSyncToServer(); resolve(); };
     tx.onerror = (e) => reject(e.target.error);
   });
 }
@@ -2620,6 +2708,12 @@ async function seedDealers() {
 // ===== INIT =====
 async function init() {
   await openDB();
+
+  // If logged in, sync data from server before rendering
+  if (_authToken) {
+    await syncFromServer();
+  }
+
   await seedDealers();
 
   const user = await dbGet('settings', 'user');
