@@ -19,6 +19,18 @@ JWT_SECRET = os.environ.get("JWT_SECRET", "change-me")
 ADMIN_PASSWORD = os.environ.get("ADMIN_DEFAULT_PASSWORD", "admin123")
 MVRCHECK_API_KEY = os.environ.get("MVRCHECK_API_KEY", "")
 MVRCHECK_API_URL = os.environ.get("MVRCHECK_API_URL", "https://api.mvrcheck.com/v1/mvr")
+# Shared auth — login is delegated to the INEOS Americas Platform so all
+# Hub-connected apps share the same accounts. Set PLATFORM_AUTH_URL on Render
+# to override; defaults to the production Platform service.
+PLATFORM_AUTH_URL = os.environ.get(
+    "PLATFORM_AUTH_URL",
+    "https://ineos-americas-platform.onrender.com/api/auth/login",
+)
+PLATFORM_ME_URL = os.environ.get(
+    "PLATFORM_ME_URL",
+    "https://ineos-americas-platform.onrender.com/api/auth/me",
+)
+ALLOW_LOCAL_FALLBACK = os.environ.get("ALLOW_LOCAL_FALLBACK", "true").lower() == "true"
 
 engine = create_engine(DATABASE_URL, pool_pre_ping=True)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
@@ -66,29 +78,125 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="INEOS Fleet Manager", lifespan=lifespan)
 
 
-@app.post("/api/login")
-def login(data: dict, db: Session = Depends(get_db)):
+def _local_login(data: dict, db: Session):
+    """Fallback: authenticate against the local users table (admin seed only)."""
     user = db.query(User).filter(User.username == data.get("username")).first()
     if not user:
-        raise HTTPException(401, "Invalid credentials")
+        return None
     if not bcrypt.checkpw(data.get("password", "").encode("utf-8")[:72], user.password_hash.encode("utf-8")):
-        raise HTTPException(401, "Invalid credentials")
+        return None
     token = jwt.encode(
-        {"sub": user.username, "exp": datetime.utcnow() + timedelta(hours=12)},
+        {"sub": user.username, "exp": datetime.utcnow() + timedelta(hours=12), "src": "local"},
         JWT_SECRET, algorithm="HS256",
     )
-    return {"token": token, "username": user.username}
+    return {"token": token, "username": user.username, "role": "admin", "source": "local"}
+
+
+def _platform_login(data: dict):
+    """Authenticate against the INEOS Americas Platform (the Hub's auth source)."""
+    payload = json.dumps({
+        "username": data.get("username", ""),
+        "password": data.get("password", ""),
+    }).encode("utf-8")
+    req = urllib.request.Request(
+        PLATFORM_AUTH_URL,
+        data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            body = json.loads(resp.read().decode("utf-8"))
+        # Platform returns { token, username, role, dealer_name }
+        body["source"] = "platform"
+        return body
+    except urllib.error.HTTPError as e:
+        if e.code == 401:
+            return None
+        raise HTTPException(502, f"Platform auth error ({e.code})")
+    except Exception as e:
+        # Network failure / DNS / timeout — caller decides whether to fall back
+        raise HTTPException(503, f"Platform auth unreachable: {e}")
+
+
+@app.post("/api/login")
+def login(data: dict, db: Session = Depends(get_db)):
+    """
+    Login is delegated to the INEOS Americas Platform so this app shares
+    accounts with the Hub and every other Platform-connected service.
+    Falls back to the local seeded admin account when the Platform is
+    unreachable (controlled by ALLOW_LOCAL_FALLBACK env var).
+    """
+    if not data.get("username") or not data.get("password"):
+        raise HTTPException(400, "Username and password required")
+
+    try:
+        result = _platform_login(data)
+        if result:
+            return result
+        # Platform reachable but returned 401 — try local fallback so the
+        # default admin still works on a fresh deploy.
+        if ALLOW_LOCAL_FALLBACK:
+            local = _local_login(data, db)
+            if local:
+                return local
+        raise HTTPException(401, "Invalid credentials")
+    except HTTPException as he:
+        # Platform unreachable (503) — fall back to local accounts
+        if he.status_code == 503 and ALLOW_LOCAL_FALLBACK:
+            local = _local_login(data, db)
+            if local:
+                return local
+        raise
+
+
+# Tiny in-memory cache for Platform token validations to avoid hammering it
+_token_cache: dict = {}  # token -> (username, expires_at_epoch)
+_TOKEN_CACHE_TTL = 300   # seconds
+
+
+def _validate_via_platform(token: str):
+    """Ask the Platform whether a token is valid. Cached for 5 minutes."""
+    now = datetime.utcnow().timestamp()
+    cached = _token_cache.get(token)
+    if cached and cached[1] > now:
+        return cached[0]
+    req = urllib.request.Request(
+        PLATFORM_ME_URL,
+        headers={"Authorization": f"Bearer {token}"},
+        method="GET",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            body = json.loads(resp.read().decode("utf-8"))
+        username = body.get("username") or body.get("sub") or "unknown"
+        _token_cache[token] = (username, now + _TOKEN_CACHE_TTL)
+        return username
+    except Exception:
+        return None
 
 
 def get_current_user(request: Request):
+    """
+    Validate the JWT. Try local secret first (fast path for tokens this app
+    or any app sharing JWT_SECRET issued), then fall back to asking the
+    Platform's /api/auth/me endpoint. This way Hub-issued tokens always work.
+    """
     auth = request.headers.get("Authorization", "")
     if not auth.startswith("Bearer "):
         raise HTTPException(401, "Not authenticated")
+    token = auth[7:]
+    # 1. Try local decode (matching JWT_SECRET — fast, no network)
     try:
-        payload = jwt.decode(auth[7:], JWT_SECRET, algorithms=["HS256"])
-        return payload["sub"]
+        payload = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
+        return payload.get("sub") or payload.get("username") or "unknown"
     except Exception:
-        raise HTTPException(401, "Invalid token")
+        pass
+    # 2. Fall back to Platform validation
+    user = _validate_via_platform(token)
+    if user:
+        return user
+    raise HTTPException(401, "Invalid token")
 
 
 @app.get("/api/db")
