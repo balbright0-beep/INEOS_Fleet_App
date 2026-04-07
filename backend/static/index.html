@@ -802,23 +802,37 @@ input[type="file"]{display:none}
     <div class="form-row-3">
       <div class="form-group"><label class="form-label">Department</label><input type="text" class="form-input" id="drv-dept"></div>
       <div class="form-group"><label class="form-label">Employee ID</label><input type="text" class="form-input" id="drv-empid"></div>
+      <div class="form-group"><label class="form-label">Date of Birth</label><input type="date" class="form-input" id="drv-dob"></div>
+    </div>
+    <div class="form-row-3">
       <div class="form-group"><label class="form-label">License State</label><input type="text" class="form-input" id="drv-licstate" maxlength="2" style="text-transform:uppercase"></div>
+      <div class="form-group"><label class="form-label">License Number</label><input type="text" class="form-input" id="drv-licnum" style="text-transform:uppercase"></div>
+      <div class="form-group"><label class="form-label">License Expiration</label><input type="date" class="form-input" id="drv-licexp"></div>
     </div>
     <div class="form-row">
-      <div class="form-group"><label class="form-label">License Expiration</label><input type="date" class="form-input" id="drv-licexp"></div>
       <div class="form-group"><label class="form-label">Risk Score</label>
         <select class="form-select" id="drv-risk">
           <option value="LOW">Low</option><option value="MEDIUM">Medium</option><option value="HIGH">High</option><option value="CRITICAL">Critical</option>
         </select>
       </div>
-    </div>
-    <div class="form-row">
-      <div class="form-group"><label class="form-label">Last MVR Check</label><input type="date" class="form-input" id="drv-mvr"></div>
       <div class="form-group">
         <label class="form-label">Insurance Compliant</label>
         <select class="form-select" id="drv-insurance"><option value="true">Yes</option><option value="false">No</option></select>
       </div>
     </div>
+
+    <hr class="section-divider">
+    <h4 style="font-size:13px;font-weight:600;margin:0 0 8px">Motor Vehicle Record (MVR)</h4>
+    <div class="form-row">
+      <div class="form-group"><label class="form-label">Last MVR Pull</label><input type="date" class="form-input" id="drv-mvr"></div>
+      <div class="form-group" style="display:flex;align-items:flex-end">
+        <button type="button" class="btn btn-secondary btn-sm" onclick="pullDriverMVR()" id="drv-pull-mvr-btn">
+          ⟳ Pull MVR from MVRcheck
+        </button>
+      </div>
+    </div>
+    <div id="drv-mvr-results" style="margin-bottom:12px"></div>
+
     <div class="form-group"><label class="form-label">Notes</label><textarea class="form-textarea" id="drv-notes"></textarea></div>
     <input type="hidden" id="drv-edit-id">
     <div class="modal-actions">
@@ -2373,9 +2387,10 @@ function openDriverModal(editId) {
   document.getElementById('driver-modal-title').textContent = editId ? 'Edit Driver' : 'Add Driver';
   document.getElementById('drv-edit-id').value = editId || '';
   if (!editId) {
-    ['drv-name','drv-email','drv-dept','drv-empid','drv-licstate','drv-licexp','drv-mvr','drv-notes'].forEach(id => document.getElementById(id).value = '');
+    ['drv-name','drv-email','drv-dept','drv-empid','drv-dob','drv-licstate','drv-licnum','drv-licexp','drv-mvr','drv-notes'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
     document.getElementById('drv-risk').value = 'LOW';
     document.getElementById('drv-insurance').value = 'true';
+    document.getElementById('drv-mvr-results').innerHTML = '';
   }
   openModal('driver-modal');
 }
@@ -2383,18 +2398,97 @@ function openDriverModal(editId) {
 async function openDriverDetail(id) {
   const d = await dbGet('drivers', id);
   if (!d) return;
-  // Populate modal for editing
   openDriverModal(id);
   document.getElementById('drv-name').value = d.name;
   document.getElementById('drv-email').value = d.email || '';
   document.getElementById('drv-dept').value = d.department || '';
   document.getElementById('drv-empid').value = d.employeeId || '';
+  document.getElementById('drv-dob').value = d.dateOfBirth || '';
   document.getElementById('drv-licstate').value = d.licenseState || '';
+  document.getElementById('drv-licnum').value = d.licenseNumber || '';
   document.getElementById('drv-licexp').value = d.licenseExpiration || '';
   document.getElementById('drv-risk').value = d.riskScore || 'LOW';
   document.getElementById('drv-mvr').value = d.lastMvrCheck || '';
   document.getElementById('drv-insurance').value = d.insuranceCompliant ? 'true' : 'false';
   document.getElementById('drv-notes').value = d.notes || '';
+  renderDriverMvrResults(d);
+}
+
+function renderDriverMvrResults(d) {
+  const el = document.getElementById('drv-mvr-results');
+  if (!d.mvrReport) { el.innerHTML = ''; return; }
+  const r = d.mvrReport;
+  const violations = r.violations || [];
+  const suspensions = r.suspensions || [];
+  const isClean = violations.length === 0 && suspensions.length === 0;
+  const statusColor = isClean ? 'var(--success)' : violations.length > 2 ? 'var(--error)' : 'var(--amber)';
+  el.innerHTML = `
+    <div style="background:var(--alabaster);border-left:3px solid ${statusColor};padding:10px 14px;border-radius:4px;font-size:13px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <strong>MVR Report ${r.mock ? '<span class="badge badge-neutral" style="font-size:10px">MOCK</span>' : ''}</strong>
+        <span style="color:var(--iron-smoke);font-size:12px">Pulled ${fmtDate((r.fetchedAt||'').slice(0,10))}</span>
+      </div>
+      <div>License Status: <strong style="color:${statusColor}">${r.licenseStatus || 'UNKNOWN'}</strong>${r.expirationDate ? ' · Expires ' + fmtDate(r.expirationDate) : ''}</div>
+      <div>Violations: <strong>${violations.length}</strong> · Suspensions: <strong>${suspensions.length}</strong> · Points: <strong>${r.totalPoints || 0}</strong></div>
+      ${violations.length ? '<ul style="margin:6px 0 0 18px;font-size:12px">' + violations.slice(0,5).map(v => '<li>' + (v.description || v.type || JSON.stringify(v)) + '</li>').join('') + '</ul>' : ''}
+      ${r.note ? '<div style="font-size:11px;color:var(--iron-smoke);margin-top:6px;font-style:italic">' + r.note + '</div>' : ''}
+    </div>
+  `;
+}
+
+async function pullDriverMVR() {
+  const editId = document.getElementById('drv-edit-id').value;
+  const name = document.getElementById('drv-name').value.trim();
+  const dob = document.getElementById('drv-dob').value;
+  const licNum = document.getElementById('drv-licnum').value.trim().toUpperCase();
+  const licState = document.getElementById('drv-licstate').value.trim().toUpperCase();
+  if (!name || !dob || !licNum || !licState) {
+    return toast('Name, DOB, License Number, and License State are required to pull an MVR', 'error');
+  }
+  const btn = document.getElementById('drv-pull-mvr-btn');
+  btn.disabled = true;
+  btn.textContent = '⟳ Pulling…';
+  try {
+    const resp = await fetch('/api/mvr/pull', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + (_authToken || '') },
+      body: JSON.stringify({ driverName: name, licenseNumber: licNum, licenseState: licState, dateOfBirth: dob })
+    });
+    if (!resp.ok) {
+      const err = await resp.text();
+      throw new Error(err);
+    }
+    const report = await resp.json();
+    // Save the report onto the driver record (auto-save)
+    if (editId) {
+      const d = await dbGet('drivers', editId);
+      if (d) {
+        d.mvrReport = report;
+        d.lastMvrCheck = new Date().toISOString().slice(0,10);
+        d.dateOfBirth = dob;
+        d.licenseNumber = licNum;
+        d.licenseState = licState;
+        // Auto-update risk based on violations
+        const vc = (report.violations || []).length;
+        const sc = (report.suspensions || []).length;
+        if (sc > 0 || vc >= 4) d.riskScore = 'CRITICAL';
+        else if (vc >= 2) d.riskScore = 'HIGH';
+        else if (vc === 1) d.riskScore = 'MEDIUM';
+        d.updatedAt = new Date().toISOString();
+        await dbPut('drivers', d);
+        await audit('MVR_PULL', 'DRIVER', editId, null, { violations: vc, suspensions: sc }, `MVR pulled: ${vc} violations, ${sc} suspensions`);
+        document.getElementById('drv-mvr').value = d.lastMvrCheck;
+        document.getElementById('drv-risk').value = d.riskScore;
+      }
+    }
+    renderDriverMvrResults({ mvrReport: report });
+    toast('MVR pull complete' + (report.mock ? ' (mock — set MVRCHECK_API_KEY for real pulls)' : ''), 'success');
+  } catch (e) {
+    toast('MVR pull failed: ' + e.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '⟳ Pull MVR from MVRcheck';
+  }
 }
 
 async function saveDriver() {
@@ -2402,23 +2496,27 @@ async function saveDriver() {
   const name = document.getElementById('drv-name').value.trim();
   if (!name) return toast('Name is required', 'error');
 
+  const existing = editId ? await dbGet('drivers', editId) : null;
   const driver = {
     id: editId || 'DRV-' + Date.now(),
     name,
     email: document.getElementById('drv-email').value,
     department: document.getElementById('drv-dept').value,
     employeeId: document.getElementById('drv-empid').value,
+    dateOfBirth: document.getElementById('drv-dob').value || null,
     licenseState: document.getElementById('drv-licstate').value.toUpperCase(),
+    licenseNumber: document.getElementById('drv-licnum').value.toUpperCase() || null,
     licenseExpiration: document.getElementById('drv-licexp').value || null,
-    assignedVin: editId ? (await dbGet('drivers', editId))?.assignedVin || null : null,
+    assignedVin: existing?.assignedVin || null,
     riskScore: document.getElementById('drv-risk').value,
     lastMvrCheck: document.getElementById('drv-mvr').value || null,
-    violations: editId ? (await dbGet('drivers', editId))?.violations || [] : [],
-    trainingCompleted: editId ? (await dbGet('drivers', editId))?.trainingCompleted || [] : [],
+    mvrReport: existing?.mvrReport || null,
+    violations: existing?.violations || [],
+    trainingCompleted: existing?.trainingCompleted || [],
     insuranceCompliant: document.getElementById('drv-insurance').value === 'true',
     status: 'ACTIVE',
     notes: document.getElementById('drv-notes').value,
-    history: editId ? (await dbGet('drivers', editId))?.history || [] : []
+    history: existing?.history || []
   };
 
   await dbPut('drivers', driver);
