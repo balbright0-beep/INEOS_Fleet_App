@@ -1021,12 +1021,9 @@ input[type="file"]{display:none}
       <div class="form-group"><label class="form-label">License State</label><input type="text" class="form-input" id="drv-licstate" maxlength="2" style="text-transform:uppercase"></div>
       <div class="form-group"><label class="form-label">License Expiration</label><input type="date" class="form-input" id="drv-licexp"></div>
     </div>
-    <div class="form-row">
-      <div class="form-group"><label class="form-label">First US License Issued</label><input type="date" class="form-input" id="drv-licissued"></div>
-      <div class="form-group">
-        <label class="form-label">Insurable per Fleet Carrier</label>
-        <select class="form-select" id="drv-insurance" onchange="recalcModalRisk()"><option value="true">Yes</option><option value="false">No — UNINSURABLE</option></select>
-      </div>
+    <div class="form-group" style="max-width:300px">
+      <label class="form-label">Insurable per Fleet Carrier</label>
+      <select class="form-select" id="drv-insurance" onchange="recalcModalRisk()"><option value="true">Yes</option><option value="false">No — UNINSURABLE</option></select>
     </div>
 
     <hr class="section-divider">
@@ -3189,13 +3186,6 @@ function calculateDriverRisk(d) {
   if (age !== null && age < 25) eligibilityIssues.push(`Age ${age} (< 25 minimum)`);
   if (age === null) eligibilityIssues.push('Date of birth missing');
 
-  if (d.licenseFirstIssued) {
-    const yrs = _yearsBetween(d.licenseFirstIssued, now);
-    if (yrs < 2) eligibilityIssues.push(`US license held ${yrs.toFixed(1)} yr (< 2 yr minimum)`);
-  } else {
-    eligibilityIssues.push('First US license issue date missing');
-  }
-
   if (!d.lastMvrCheck) eligibilityIssues.push('No MVR on file');
   if (d.insuranceCompliant === false) eligibilityIssues.push('Not insurable per fleet carrier');
 
@@ -3261,7 +3251,6 @@ function _readDriverFromModal() {
     firstName: document.getElementById('drv-firstname').value.trim(),
     lastName:  document.getElementById('drv-lastname').value.trim(),
     dateOfBirth: document.getElementById('drv-dob').value || null,
-    licenseFirstIssued: document.getElementById('drv-licissued').value || null,
     lastMvrCheck: document.getElementById('drv-mvr').value || null,
     insuranceCompliant: document.getElementById('drv-insurance').value === 'true',
     dmvPoints: Number(document.getElementById('drv-dmv-points').value) || 0,
@@ -3305,7 +3294,7 @@ function openDriverModal(editId) {
   if (!editId) {
     ['drv-firstname','drv-lastname','drv-email','drv-phone','drv-dept','drv-empid','drv-dob',
      'drv-street','drv-city','drv-state','drv-zip',
-     'drv-licstate','drv-licnum','drv-licexp','drv-licissued',
+     'drv-licstate','drv-licnum','drv-licexp',
      'drv-mvr','drv-notes',
      'drv-last-suspension','drv-last-dui','drv-last-totalloss']
       .forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
@@ -3339,7 +3328,6 @@ async function openDriverDetail(id) {
   document.getElementById('drv-licnum').value   = d.licenseNumber || '';
   document.getElementById('drv-licstate').value = d.licenseState || '';
   document.getElementById('drv-licexp').value   = d.licenseExpiration || '';
-  document.getElementById('drv-licissued').value= d.licenseFirstIssued || '';
   document.getElementById('drv-insurance').value = d.insuranceCompliant === false ? 'false' : 'true';
   // MVR
   document.getElementById('drv-mvr').value = d.lastMvrCheck || '';
@@ -3458,7 +3446,6 @@ async function saveDriver() {
     licenseNumber:     document.getElementById('drv-licnum').value.trim().toUpperCase() || null,
     licenseState:      document.getElementById('drv-licstate').value.trim().toUpperCase(),
     licenseExpiration: document.getElementById('drv-licexp').value || null,
-    licenseFirstIssued:document.getElementById('drv-licissued').value || null,
     insuranceCompliant: document.getElementById('drv-insurance').value === 'true',
     lastMvrCheck:      document.getElementById('drv-mvr').value || null,
     dmvPoints:         Number(document.getElementById('drv-dmv-points').value) || 0,
