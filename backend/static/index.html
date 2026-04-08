@@ -4011,9 +4011,12 @@ function downloadCSVTemplate(type) {
     csv += 'SAMPLEVIN87654321,DEMO,MY25,Station Wagon,Trialmaster,Satin Black,89000,Sewell INEOS,SWL,Central,Brant Scott,0,2026-04-01,,,,Dealer Demo\n';
     filename = 'vehicle_import_template.csv';
   } else if (type === 'drivers') {
-    csv = 'name,email,department,employeeid,dateofbirth,licensestate,licensenumber,licenseexpiration,riskscore,lastmvrcheck,insurancecompliant,assignedvin,notes\n';
-    csv += 'Jane Doe,jane.doe@ineos.com,Engineering,E12345,1985-06-15,TX,D1234567,2028-06-15,LOW,2026-01-10,true,SAMPLEVIN12345678,\n';
-    csv += 'John Smith,john.smith@ineos.com,Sales,E67890,1990-02-22,CA,B9876543,2027-02-22,LOW,,true,,New hire\n';
+    // Columns match the current driver schema. Risk is calculated on import
+    // from the MVR inputs — do NOT include a riskscore column.
+    csv = 'firstname,lastname,email,phone,department,employeeid,dateofbirth,street,city,state,zip,licensenumber,licensestate,licenseexpiration,insurancecompliant,lastmvrcheck,dmvpoints,pointslast36mo,atfaultaccidentslast3yr,lastsuspensiondate,lastduidate,lasttotallossdate,majoroffenses,assignedvin,notes\n';
+    csv += 'Jane,Doe,jane.doe@ineos.com,555-0100,Engineering,E12345,1985-06-15,12170 Katy Fwy,Houston,TX,77079,D1234567,TX,2028-06-15,true,2026-01-10,2,2,0,,,,,SAMPLEVIN12345678,\n';
+    csv += 'John,Smith,john.smith@ineos.com,555-0101,Sales,E67890,1990-02-22,100 Market St,San Francisco,CA,94105,B9876543,CA,2027-02-22,true,,5,5,0,,,,,,New hire — pending MVR pull\n';
+    csv += 'Mary,Johnson,mary.johnson@ineos.com,555-0102,Marketing,E33333,1988-10-05,500 Broadway,New York,NY,10012,M4567890,NY,2029-10-05,false,2025-12-15,3,3,1,,,,,,\n';
     filename = 'driver_import_template.csv';
   } else {
     csv = 'vin,date,odometer,source\n';
@@ -4051,22 +4054,43 @@ async function importDriversCSV(e) {
   const idx = (key) => headers.indexOf(key);
 
   const col = {
-    name:     idx('name'),
+    // Identity
+    first:    idx('firstname'),
+    last:     idx('lastname'),
+    fullName: idx('name'),              // legacy — still supported
     email:    idx('email'),
+    phone:    idx('phone'),
     dept:     idx('department'),
     empid:    idx('employeeid'),
     dob:      idx('dateofbirth'),
+    // Address
+    street:   idx('street'),
+    city:     idx('city'),
+    state:    idx('state'),
+    zip:      idx('zip'),
+    // License
     licState: idx('licensestate'),
     licNum:   idx('licensenumber'),
     licExp:   idx('licenseexpiration'),
-    risk:     idx('riskscore'),
-    lastMvr:  idx('lastmvrcheck'),
     insured:  idx('insurancecompliant'),
+    // MVR
+    lastMvr:  idx('lastmvrcheck'),
+    dmvPts:   idx('dmvpoints'),
+    pts36:    idx('pointslast36mo'),
+    atFault3: idx('atfaultaccidentslast3yr'),
+    lastSus:  idx('lastsuspensiondate'),
+    lastDui:  idx('lastduidate'),
+    lastLoss: idx('lasttotallossdate'),
+    majorOff: idx('majoroffenses'),
+    // Assignment + notes
     vin:      idx('assignedvin'),
     notes:    idx('notes'),
   };
 
-  if (col.name < 0) { e.target.value=''; return toast('CSV must include a "name" column', 'error'); }
+  if (col.first < 0 && col.last < 0 && col.fullName < 0) {
+    e.target.value = '';
+    return toast('CSV must include either "firstname"+"lastname" or a legacy "name" column', 'error');
+  }
 
   const existing = await dbGetAll('drivers');
   const byEmail = {}, byEmpId = {};
@@ -4075,50 +4099,85 @@ async function importDriversCSV(e) {
     if (d.employeeId) byEmpId[d.employeeId] = d;
   });
 
+  const cell = (row, ci) => (ci >= 0 ? (row[ci] || '').trim() : '');
+  const numCell = (row, ci) => { const v = cell(row, ci); return v ? Number(v) : 0; };
+  const parseBool = (v) => /^(true|yes|y|1)$/i.test((v || '').trim());
+
   let created = 0, updated = 0, skipped = 0;
   for (let i = 1; i < lines.length; i++) {
     const row = parseRow(lines[i]);
-    const name = (row[col.name] || '').trim();
-    if (!name) { skipped++; continue; }
 
-    const email   = col.email   >= 0 ? (row[col.email]  || '').trim() : '';
-    const empid   = col.empid   >= 0 ? (row[col.empid]  || '').trim() : '';
-    const dept    = col.dept    >= 0 ? (row[col.dept]   || '').trim() : '';
-    const dob     = col.dob     >= 0 ? (row[col.dob]    || '').trim() : '';
-    const licSt   = col.licState>= 0 ? (row[col.licState]|| '').trim().toUpperCase() : '';
-    const licNum  = col.licNum  >= 0 ? (row[col.licNum] || '').trim().toUpperCase() : '';
-    const licExp  = col.licExp  >= 0 ? (row[col.licExp] || '').trim() : '';
-    const risk    = col.risk    >= 0 ? ((row[col.risk]  || 'LOW').trim().toUpperCase()) : 'LOW';
-    const lastMvr = col.lastMvr >= 0 ? (row[col.lastMvr]|| '').trim() : '';
-    const insured = col.insured >= 0 ? /^(true|yes|y|1)$/i.test((row[col.insured]||'').trim()) : true;
-    const vin     = col.vin     >= 0 ? (row[col.vin]    || '').trim().toUpperCase() : '';
-    const notes   = col.notes   >= 0 ? (row[col.notes]  || '').trim() : '';
+    // Name handling — prefer first/last, fall back to legacy "name"
+    let firstName = cell(row, col.first);
+    let lastName  = cell(row, col.last);
+    if (!firstName && !lastName) {
+      const legacy = cell(row, col.fullName);
+      if (legacy) {
+        const parts = legacy.split(/\s+/);
+        firstName = parts[0] || '';
+        lastName = parts.slice(1).join(' ');
+      }
+    }
+    if (!firstName && !lastName) { skipped++; continue; }
+    const fullName = (firstName + ' ' + lastName).trim();
+
+    const email   = cell(row, col.email);
+    const empid   = cell(row, col.empid);
+
+    // Major offenses — pipe-separated list (commas would break CSV parsing)
+    const majorRaw = cell(row, col.majorOff);
+    const majorOffenses = majorRaw ? majorRaw.split('|').map(s => s.trim()).filter(Boolean) : [];
+
+    const partial = {
+      firstName, lastName, name: fullName,
+      email, phone: cell(row, col.phone),
+      department: cell(row, col.dept),
+      employeeId: empid,
+      dateOfBirth: cell(row, col.dob) || null,
+      address: {
+        street: cell(row, col.street),
+        city:   cell(row, col.city),
+        state:  cell(row, col.state).toUpperCase(),
+        zip:    cell(row, col.zip),
+      },
+      licenseNumber:     cell(row, col.licNum).toUpperCase() || null,
+      licenseState:      cell(row, col.licState).toUpperCase(),
+      licenseExpiration: cell(row, col.licExp) || null,
+      insuranceCompliant: col.insured >= 0 ? parseBool(cell(row, col.insured)) : true,
+      lastMvrCheck:      cell(row, col.lastMvr) || null,
+      dmvPoints:         numCell(row, col.dmvPts),
+      pointsLast36Mo:    numCell(row, col.pts36),
+      atFaultAccidentsLast3Yr: numCell(row, col.atFault3),
+      lastSuspensionDate: cell(row, col.lastSus) || null,
+      lastDuiDate:        cell(row, col.lastDui) || null,
+      lastTotalLossDate:  cell(row, col.lastLoss) || null,
+      majorOffenses,
+      assignedVin: cell(row, col.vin).toUpperCase() || null,
+      notes: cell(row, col.notes),
+    };
+
+    // Run the same risk calculator the modal uses
+    const calc = calculateDriverRisk(partial);
 
     const existingDriver = (email && byEmail[email.toLowerCase()]) || (empid && byEmpId[empid]);
     const isUpdate = !!existingDriver;
 
-    const driver = existingDriver ? { ...existingDriver } : {
-      id: 'DRV-' + Date.now() + '-' + i,
-      status: 'ACTIVE',
-      violations: [],
-      trainingCompleted: [],
-      history: [],
+    const driver = {
+      id: existingDriver?.id || 'DRV-' + Date.now() + '-' + i,
+      status: existingDriver?.status || 'ACTIVE',
+      violations: existingDriver?.violations || [],
+      trainingCompleted: existingDriver?.trainingCompleted || [],
+      history: existingDriver?.history || [],
+      mvrReport: existingDriver?.mvrReport || null,
+      createdAt: existingDriver?.createdAt || new Date().toISOString(),
+      ...partial,
+      riskScore: calc.risk,
+      riskReasons: calc.reasons,
+      eligible: calc.eligible,
+      eligibilityIssues: calc.eligibilityIssues,
+      mvrMonitoringMonths: calc.monitoringMonths,
+      updatedAt: new Date().toISOString(),
     };
-
-    driver.name              = name;
-    driver.email             = email || driver.email || '';
-    driver.department        = dept || driver.department || '';
-    driver.employeeId        = empid || driver.employeeId || '';
-    driver.dateOfBirth       = dob || driver.dateOfBirth || null;
-    driver.licenseState      = licSt || driver.licenseState || '';
-    driver.licenseNumber     = licNum || driver.licenseNumber || null;
-    driver.licenseExpiration = licExp || driver.licenseExpiration || null;
-    driver.riskScore         = ['LOW','MEDIUM','HIGH','CRITICAL'].includes(risk) ? risk : (driver.riskScore || 'LOW');
-    driver.lastMvrCheck      = lastMvr || driver.lastMvrCheck || null;
-    driver.insuranceCompliant= insured;
-    driver.assignedVin       = vin || driver.assignedVin || null;
-    driver.notes             = notes || driver.notes || '';
-    driver.updatedAt         = new Date().toISOString();
 
     await dbPut('drivers', driver);
     if (isUpdate) updated++; else created++;
