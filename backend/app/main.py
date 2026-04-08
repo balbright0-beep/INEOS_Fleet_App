@@ -16,12 +16,11 @@ from datetime import datetime, timedelta
 # Config
 DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:///fleet.db")
 JWT_SECRET = os.environ.get("JWT_SECRET", "change-me")
-ADMIN_PASSWORD = os.environ.get("ADMIN_DEFAULT_PASSWORD", "admin123")
 MVRCHECK_API_KEY = os.environ.get("MVRCHECK_API_KEY", "")
 MVRCHECK_API_URL = os.environ.get("MVRCHECK_API_URL", "https://api.mvrcheck.com/v1/mvr")
 # Shared auth — login is delegated to the INEOS Americas Platform so all
-# Hub-connected apps share the same accounts. Set PLATFORM_AUTH_URL on Render
-# to override; defaults to the production Platform service.
+# Hub-connected apps share the same accounts. The Platform is the ONLY source
+# of truth for users; the Fleet App holds no local user table.
 PLATFORM_AUTH_URL = os.environ.get(
     "PLATFORM_AUTH_URL",
     "https://ineos-americas-platform.onrender.com/api/auth/login",
@@ -34,7 +33,12 @@ PLATFORM_BASE_URL = os.environ.get(
     "PLATFORM_BASE_URL",
     "https://ineos-americas-platform.onrender.com",
 )
-ALLOW_LOCAL_FALLBACK = os.environ.get("ALLOW_LOCAL_FALLBACK", "true").lower() == "true"
+# Local fallback is OFF by default. Set ALLOW_LOCAL_FALLBACK=true on Render
+# only as an emergency break-glass when the Platform is hard-down — and even
+# then you must set EMERGENCY_ADMIN_PASSWORD as a separate env var to seed a
+# temporary admin row, since no user is seeded by default.
+ALLOW_LOCAL_FALLBACK = os.environ.get("ALLOW_LOCAL_FALLBACK", "false").lower() == "true"
+EMERGENCY_ADMIN_PASSWORD = os.environ.get("EMERGENCY_ADMIN_PASSWORD", "")
 
 engine = create_engine(DATABASE_URL, pool_pre_ping=True)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
@@ -67,11 +71,18 @@ def get_db():
 async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
     db = SessionLocal()
-    if db.query(User).count() == 0:
-        pw = (ADMIN_PASSWORD or "admin123").encode("utf-8")[:72]
-        hashed = bcrypt.hashpw(pw, bcrypt.gensalt()).decode("utf-8")
-        db.add(User(username="admin", password_hash=hashed))
+    # Wipe any historical local users — Fleet App no longer holds its own
+    # user table. The Platform is the only source of truth.
+    if not (ALLOW_LOCAL_FALLBACK and EMERGENCY_ADMIN_PASSWORD):
+        db.query(User).delete()
         db.commit()
+    elif db.query(User).count() == 0:
+        # Emergency-only seed: explicit env vars must both be set
+        pw = EMERGENCY_ADMIN_PASSWORD.encode("utf-8")[:72]
+        hashed = bcrypt.hashpw(pw, bcrypt.gensalt()).decode("utf-8")
+        db.add(User(username="emergency-admin", password_hash=hashed))
+        db.commit()
+        print("[auth] WARNING: emergency-admin user seeded — disable ALLOW_LOCAL_FALLBACK as soon as the Platform is reachable")
     if db.query(FleetData).count() == 0:
         db.add(FleetData(id=1, data="{}", updated_at=datetime.utcnow().isoformat()))
         db.commit()
@@ -126,10 +137,11 @@ def _platform_login(data: dict):
 @app.post("/api/login")
 def login(data: dict, db: Session = Depends(get_db)):
     """
-    Login is delegated to the INEOS Americas Platform so this app shares
-    accounts with the Hub and every other Platform-connected service.
-    Falls back to the local seeded admin account when the Platform is
-    unreachable (controlled by ALLOW_LOCAL_FALLBACK env var).
+    Authentication is delegated to the INEOS Americas Platform — the same
+    user database that powers every Hub-connected app. The Fleet App holds
+    no users of its own. If the Platform is unreachable, login fails with a
+    503 unless ALLOW_LOCAL_FALLBACK + EMERGENCY_ADMIN_PASSWORD are both set
+    on Render (break-glass only).
     """
     if not data.get("username") or not data.get("password"):
         raise HTTPException(400, "Username and password required")
@@ -138,19 +150,17 @@ def login(data: dict, db: Session = Depends(get_db)):
         result = _platform_login(data)
         if result:
             return result
-        # Platform reachable but returned 401 — try local fallback so the
-        # default admin still works on a fresh deploy.
-        if ALLOW_LOCAL_FALLBACK:
-            local = _local_login(data, db)
-            if local:
-                return local
+        # Platform answered 401 — credentials are wrong. Do NOT fall back.
         raise HTTPException(401, "Invalid credentials")
     except HTTPException as he:
-        # Platform unreachable (503) — fall back to local accounts
+        # Platform unreachable (503) and break-glass enabled
         if he.status_code == 503 and ALLOW_LOCAL_FALLBACK:
             local = _local_login(data, db)
             if local:
                 return local
+            raise HTTPException(503, "Platform unreachable and emergency credentials don't match")
+        if he.status_code == 503:
+            raise HTTPException(503, "Sign-in service is temporarily unavailable. Please try again in a moment.")
         raise
 
 
@@ -182,18 +192,26 @@ def _validate_via_platform(token: str):
 
 def get_current_user(request: Request):
     """
-    Validate the JWT. Try local secret first (fast path for tokens this app
-    or any app sharing JWT_SECRET issued), then fall back to asking the
-    Platform's /api/auth/me endpoint. This way Hub-issued tokens always work.
+    Validate the JWT. The Platform is the source of truth — we ask
+    /api/auth/me (cached 5 min) for every token. The only exception is a
+    locally-issued emergency token (src=local), which we accept by decoding
+    with our own secret, but only when ALLOW_LOCAL_FALLBACK is enabled.
     """
     auth = request.headers.get("Authorization", "")
     if not auth.startswith("Bearer "):
         raise HTTPException(401, "Not authenticated")
     token = auth[7:]
-    # 1. Try local decode (matching JWT_SECRET — fast, no network)
+    # 1. Try local decode — only honored for emergency-mode tokens
     try:
         payload = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
+        if payload.get("src") == "local":
+            if not ALLOW_LOCAL_FALLBACK:
+                raise HTTPException(401, "Local token rejected (fallback disabled)")
+            return payload.get("sub") or "unknown"
+        # Fleet-signed but not flagged local (e.g. JWT_SECRET shared with Platform)
         return payload.get("sub") or payload.get("username") or "unknown"
+    except HTTPException:
+        raise
     except Exception:
         pass
     # 2. Fall back to Platform validation
