@@ -1083,7 +1083,16 @@ input[type="file"]{display:none}
     <div id="user-modal-error" style="display:none;background:#CC0200;color:#fff;padding:8px 12px;border-radius:4px;font-size:12px;margin-bottom:12px"></div>
     <input type="hidden" id="usr-edit-id">
     <div class="form-group"><label class="form-label">Username</label><input type="text" class="form-input" id="usr-username" placeholder="e.g. jane.doe"></div>
-    <div class="form-group"><label class="form-label" id="usr-password-label">Password</label><input type="password" class="form-input" id="usr-password" placeholder="At least 8 characters"></div>
+    <div class="form-group">
+      <label class="form-label" id="usr-password-label">Password</label>
+      <div style="position:relative">
+        <input type="password" class="form-input" id="usr-password" placeholder="At least 8 characters" style="padding-right:40px">
+        <button type="button" onclick="togglePasswordVisibility('usr-password', this)" tabindex="-1"
+          style="position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;padding:4px;color:var(--iron-smoke);display:flex;align-items:center" title="Show password">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+        </button>
+      </div>
+    </div>
     <div class="form-row">
       <div class="form-group"><label class="form-label">Role</label>
         <select class="form-select" id="usr-role" onchange="onUserRoleChange()">
@@ -1108,8 +1117,26 @@ input[type="file"]{display:none}
     <div id="reset-pw-error" style="display:none;background:#CC0200;color:#fff;padding:8px 12px;border-radius:4px;font-size:12px;margin-bottom:12px"></div>
     <input type="hidden" id="reset-pw-user-id">
     <p style="font-size:13px;color:var(--iron-smoke);margin-bottom:12px">Resetting password for <strong id="reset-pw-username"></strong></p>
-    <div class="form-group"><label class="form-label">New Password</label><input type="password" class="form-input" id="reset-pw-new" placeholder="At least 8 characters"></div>
-    <div class="form-group"><label class="form-label">Confirm Password</label><input type="password" class="form-input" id="reset-pw-confirm" placeholder="Re-enter password"></div>
+    <div class="form-group">
+      <label class="form-label">New Password</label>
+      <div style="position:relative">
+        <input type="password" class="form-input" id="reset-pw-new" placeholder="At least 8 characters" style="padding-right:40px">
+        <button type="button" onclick="togglePasswordVisibility('reset-pw-new', this)" tabindex="-1"
+          style="position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;padding:4px;color:var(--iron-smoke);display:flex;align-items:center" title="Show password">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+        </button>
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Confirm Password</label>
+      <div style="position:relative">
+        <input type="password" class="form-input" id="reset-pw-confirm" placeholder="Re-enter password" style="padding-right:40px">
+        <button type="button" onclick="togglePasswordVisibility('reset-pw-confirm', this)" tabindex="-1"
+          style="position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;padding:4px;color:var(--iron-smoke);display:flex;align-items:center" title="Show password">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+        </button>
+      </div>
+    </div>
     <div class="modal-actions">
       <button class="btn btn-outline" onclick="closeModal('reset-password-modal')">Cancel</button>
       <button class="btn btn-danger" onclick="doResetPassword()">Reset Password</button>
@@ -1162,15 +1189,96 @@ input[type="file"]{display:none}
     </div>
     <p style="color:var(--iron-smoke);font-size:13px;margin-bottom:24px">Fleet Management System</p>
     <input id="login-user" placeholder="Username" style="width:100%;padding:10px 12px;border:1px solid var(--dove);border-radius:2px;font-size:14px;margin-bottom:12px;font-family:var(--font-body)">
-    <input id="login-pass" type="password" placeholder="Password" style="width:100%;padding:10px 12px;border:1px solid var(--dove);border-radius:2px;font-size:14px;margin-bottom:16px;font-family:var(--font-body)">
+    <div style="position:relative;margin-bottom:16px">
+      <input id="login-pass" type="password" placeholder="Password" style="width:100%;padding:10px 40px 10px 12px;border:1px solid var(--dove);border-radius:2px;font-size:14px;font-family:var(--font-body)">
+      <button type="button" onclick="togglePasswordVisibility('login-pass', this)" tabindex="-1"
+        style="position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;padding:4px;color:var(--iron-smoke);display:flex;align-items:center"
+        title="Show password">
+        <svg id="login-pass-eye" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+      </button>
+    </div>
     <div id="login-error" style="color:var(--error);font-size:12px;margin-bottom:12px;display:none"></div>
     <button onclick="doLogin()" style="width:100%;padding:10px;background:var(--charcoal);color:var(--white);border:none;border-radius:2px;font-size:14px;font-weight:600;cursor:pointer;font-family:var(--font-body)">Sign In</button>
+    <div style="margin-top:12px;text-align:center">
+      <a href="#" onclick="openForgotPassword();return false" style="color:var(--flare-red);font-size:12px;text-decoration:none">Forgot password?</a>
+    </div>
+  </div>
+</div>
+
+<!-- Forgot Password Modal -->
+<div class="modal-overlay" id="forgot-password-modal">
+  <div class="modal" style="max-width:420px">
+    <div class="modal-title">Reset Your Password</div>
+    <p style="font-size:13px;color:var(--iron-smoke);margin-bottom:14px">
+      Enter your username and we'll notify your INEOS Hub administrator. They'll set a new temporary password and contact you.
+    </p>
+    <div id="forgot-pw-error" style="display:none;background:#CC0200;color:#fff;padding:8px 12px;border-radius:4px;font-size:12px;margin-bottom:12px"></div>
+    <div id="forgot-pw-success" style="display:none;background:var(--success);color:#fff;padding:10px 14px;border-radius:4px;font-size:13px;margin-bottom:12px"></div>
+    <div class="form-group"><label class="form-label">Username</label><input type="text" class="form-input" id="forgot-pw-username" placeholder="Your Hub username"></div>
+    <div class="form-group"><label class="form-label">Your Email (so the admin can contact you)</label><input type="email" class="form-input" id="forgot-pw-email" placeholder="you@ineos.com"></div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="closeModal('forgot-password-modal')">Cancel</button>
+      <button class="btn btn-primary" id="forgot-pw-submit" onclick="submitForgotPassword()">Send Request</button>
+    </div>
   </div>
 </div>
 
 <script>
 // ===== SERVER SYNC LAYER =====
 let _authToken = sessionStorage.getItem('fleet_token');
+
+// Toggle a password input between hidden and visible (used by all eye icons)
+function togglePasswordVisibility(inputId, btn) {
+  const input = document.getElementById(inputId);
+  if (!input) return;
+  if (input.type === 'password') {
+    input.type = 'text';
+    btn.style.color = 'var(--flare-red)';
+    btn.title = 'Hide password';
+  } else {
+    input.type = 'password';
+    btn.style.color = 'var(--iron-smoke)';
+    btn.title = 'Show password';
+  }
+}
+
+function openForgotPassword() {
+  document.getElementById('forgot-pw-username').value = document.getElementById('login-user').value || '';
+  document.getElementById('forgot-pw-email').value = '';
+  document.getElementById('forgot-pw-error').style.display = 'none';
+  document.getElementById('forgot-pw-success').style.display = 'none';
+  document.getElementById('forgot-pw-submit').disabled = false;
+  document.getElementById('forgot-pw-submit').textContent = 'Send Request';
+  openModal('forgot-password-modal');
+}
+
+async function submitForgotPassword() {
+  const username = document.getElementById('forgot-pw-username').value.trim();
+  const email = document.getElementById('forgot-pw-email').value.trim();
+  const errEl = document.getElementById('forgot-pw-error');
+  const okEl = document.getElementById('forgot-pw-success');
+  errEl.style.display = 'none'; okEl.style.display = 'none';
+  if (!username) { errEl.textContent = 'Username is required'; errEl.style.display = 'block'; return; }
+  if (!email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { errEl.textContent = 'Enter a valid email'; errEl.style.display = 'block'; return; }
+  const btn = document.getElementById('forgot-pw-submit');
+  btn.disabled = true; btn.textContent = 'Sending…';
+  try {
+    const r = await fetch('/api/password-reset-request', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, email })
+    });
+    // Always show success regardless — never confirm whether the username
+    // exists, to avoid username enumeration. The request is logged either way.
+    okEl.textContent = 'Request received. An administrator has been notified and will contact you at ' + email + ' shortly.';
+    okEl.style.display = 'block';
+    setTimeout(() => closeModal('forgot-password-modal'), 4000);
+  } catch (e) {
+    errEl.textContent = 'Connection error: ' + e.message;
+    errEl.style.display = 'block';
+    btn.disabled = false; btn.textContent = 'Send Request';
+  }
+}
 
 async function doLogin() {
   const user = document.getElementById('login-user').value;
@@ -2184,18 +2292,29 @@ async function renderUsers() {
       tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--silver-dust);padding:20px">No users</td></tr>';
       return;
     }
-    tbody.innerHTML = users.map(u => `
+    // Look up the current user so we never let admins delete themselves
+    let me = '';
+    try {
+      const meR = await fetch('/api/me', { headers: { 'Authorization': 'Bearer ' + (_authToken || '') } });
+      if (meR.ok) { const j = await meR.json(); me = (j.username || '').toLowerCase(); }
+    } catch (e) {}
+
+    tbody.innerHTML = users.map(u => {
+      const isSelf = me && u.username.toLowerCase() === me;
+      const safeUsername = u.username.replace(/'/g, "\\'");
+      const deleteLabel = u.role === 'admin' ? 'Delete Admin' : 'Delete';
+      return `
       <tr>
-        <td style="font-weight:500">${u.username}</td>
+        <td style="font-weight:500">${u.username}${isSelf ? ' <span class="badge badge-neutral" style="font-size:10px">YOU</span>' : ''}</td>
         <td>${roleBadge(u.role)}</td>
         <td>${u.dealer_name || '-'}</td>
         <td style="font-size:12px;color:var(--iron-smoke)">${u.created_at ? fmtDate((u.created_at || '').slice(0,10)) : '-'}</td>
         <td>
-          <button class="btn btn-outline btn-sm" onclick="openResetPasswordModal(${u.id}, '${u.username.replace(/'/g, "\\'")}')">Reset PW</button>
-          ${u.role === 'admin' ? '' : `<button class="btn btn-danger btn-sm" onclick="deleteUser(${u.id}, '${u.username.replace(/'/g, "\\'")}')">Delete</button>`}
+          <button class="btn btn-outline btn-sm" onclick="openResetPasswordModal(${u.id}, '${safeUsername}')">Reset PW</button>
+          ${isSelf ? '' : `<button class="btn btn-danger btn-sm" onclick="deleteUser(${u.id}, '${safeUsername}', ${u.role === 'admin'})">${deleteLabel}</button>`}
         </td>
-      </tr>
-    `).join('');
+      </tr>`;
+    }).join('');
   } catch (e) {
     tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--silver-dust);padding:20px">Connection error: ' + e.message + '</td></tr>';
   }
@@ -2265,8 +2384,15 @@ async function saveUser() {
   }
 }
 
-async function deleteUser(userId, username) {
-  if (!confirm(`Delete user "${username}"? This cannot be undone.`)) return;
+async function deleteUser(userId, username, isAdmin) {
+  // Two-step confirmation for admin deletion
+  if (isAdmin) {
+    if (!confirm(`⚠ "${username}" is an ADMIN. Deleting them will revoke their access to every Hub-connected app. Continue?`)) return;
+    const typed = prompt(`To confirm permanent admin deletion, type the username "${username}" exactly:`);
+    if (typed !== username) { toast('Deletion cancelled — username did not match', 'error'); return; }
+  } else {
+    if (!confirm(`Delete user "${username}"? This cannot be undone.`)) return;
+  }
   try {
     const r = await fetch('/api/users/' + userId, {
       method: 'DELETE',

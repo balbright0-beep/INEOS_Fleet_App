@@ -297,6 +297,39 @@ async def reset_platform_user_password(user_id: int, request: Request, user: str
     return _proxy_platform_request("PUT", f"/api/admin/users/{user_id}/reset-password", request, body)
 
 
+@app.get("/api/me")
+def me(request: Request, user: str = Depends(get_current_user)):
+    """Return the current user's profile by proxying to the Platform."""
+    try:
+        return _proxy_platform_request("GET", "/api/auth/me", request)
+    except HTTPException:
+        return {"username": user, "role": "unknown"}
+
+
+@app.post("/api/password-reset-request")
+async def password_reset_request(request: Request):
+    """
+    Public endpoint for "Forgot password?" — accepts a username + email,
+    forwards to the Platform which logs an audit entry visible to admins.
+    Always returns 200 to prevent username enumeration. No bearer token
+    required because this is the pre-login flow.
+    """
+    body = await request.json()
+    payload = json.dumps({
+        "username": (body.get("username") or "").strip(),
+        "email": (body.get("email") or "").strip(),
+    }).encode("utf-8")
+    url = PLATFORM_BASE_URL.rstrip("/") + "/api/auth/password-reset-request"
+    req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"}, method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            resp.read()
+    except Exception as e:
+        # Log but never expose to caller — preserves the no-enumeration guarantee
+        print(f"[password_reset_request] forwarding error: {e}")
+    return {"ok": True}
+
+
 # ===== MVRcheck integration =====
 @app.post("/api/mvr/pull")
 async def pull_mvr(request: Request, user: str = Depends(get_current_user)):
