@@ -247,6 +247,10 @@ input[type="file"]{display:none}
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
       De-Fleet Log
     </div>
+    <div class="nav-item" data-page="buyback">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 14l-4-4 4-4"/><path d="M5 10h11a4 4 0 0 1 4 4v6"/></svg>
+      Buyback Log
+    </div>
     <div class="nav-item" data-page="fleet-flow">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 6h6l4 6-4 6H2l4-6-4-6z"/><path d="M16 6h6l-4 6 4 6h-6l-4-6 4-6z"/></svg>
       Fleet Flow
@@ -461,6 +465,41 @@ input[type="file"]{display:none}
           </tr></thead><tbody id="defleet-table"></tbody></table>
         </div>
         <div style="margin-top:12px" id="defleet-summary"></div>
+      </div>
+    </div>
+
+    <!-- BUYBACK LOG PAGE -->
+    <div class="page" id="page-buyback">
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:16px">
+          <div>
+            <h3 class="section-title" style="margin-bottom:4px">Buyback Log</h3>
+            <p style="font-size:13px;color:var(--iron-smoke)">Vehicles being repurchased by INEOS — lemon law claims and fleet partner returns. Once a buyback is finalized, you can re-enroll the vehicle into a program or send it to de-fleet.</p>
+          </div>
+          <button class="btn btn-primary" onclick="openBuybackModal()">+ New Buyback</button>
+        </div>
+        <div style="display:flex;gap:12px;align-items:center;margin-bottom:16px;flex-wrap:wrap">
+          <input type="text" class="form-input" id="buyback-search" placeholder="Search VIN, claim #, partner, reason…" style="max-width:320px" oninput="renderBuybackLog()">
+          <select class="form-select" id="buyback-filter-type" style="max-width:200px" onchange="renderBuybackLog()">
+            <option value="">All Types</option>
+            <option value="LEMON_LAW">Lemon Law / Dispute</option>
+            <option value="FLEET_PARTNER">Fleet Partner Return</option>
+          </select>
+          <select class="form-select" id="buyback-filter-finalized" style="max-width:160px" onchange="renderBuybackLog()">
+            <option value="">All Statuses</option>
+            <option value="yes">Finalized</option>
+            <option value="no">In Progress</option>
+          </select>
+        </div>
+        <div class="table-wrap">
+          <table><thead><tr>
+            <th style="width:40px;text-align:center" title="Finalized">&#10003;</th>
+            <th>VIN</th><th>Type</th><th>Trim</th><th>Color</th>
+            <th>Buyback Date</th><th>Reason / Claim</th><th>Counterparty</th>
+            <th>Buyback Cost</th><th>Mileage</th><th>Disposition</th>
+          </tr></thead><tbody id="buyback-table"></tbody></table>
+        </div>
+        <div style="margin-top:12px" id="buyback-summary"></div>
       </div>
     </div>
 
@@ -748,6 +787,130 @@ input[type="file"]{display:none}
     <div class="modal-actions">
       <button class="btn btn-outline" onclick="closeModal('flag-modal')">Cancel</button>
       <button class="btn btn-danger" onclick="saveFlag()">Create Flag</button>
+    </div>
+  </div>
+</div>
+
+<!-- Buyback Modal -->
+<div class="modal-overlay" id="buyback-modal">
+  <div class="modal modal-lg">
+    <div class="modal-title" id="buyback-modal-title">New Buyback</div>
+    <div style="background:var(--alabaster);border-left:3px solid var(--flare-red);padding:10px 14px;border-radius:4px;font-size:13px;margin-bottom:16px">
+      Use this for vehicles INEOS is repurchasing — lemon law claims, dispute settlements, or fleet partner end-of-contract returns.
+    </div>
+
+    <div class="form-row">
+      <div class="form-group"><label class="form-label">Buyback Type</label>
+        <select class="form-select" id="buyback-type" onchange="onBuybackTypeChange()">
+          <option value="LEMON_LAW">Lemon Law / Dispute</option>
+          <option value="FLEET_PARTNER">Fleet Partner Return</option>
+        </select>
+      </div>
+      <div class="form-group"><label class="form-label">Buyback Date</label><input type="date" class="form-input" id="buyback-date"></div>
+    </div>
+
+    <div class="form-row">
+      <div class="form-group"><label class="form-label">VIN (17 characters)</label><input type="text" class="form-input" id="buyback-vin" maxlength="17" style="text-transform:uppercase" oninput="checkBuybackVinExists()"></div>
+      <div class="form-group"><label class="form-label">Buyback Cost ($)</label><input type="number" class="form-input" id="buyback-cost" placeholder="Total cost to INEOS"></div>
+    </div>
+
+    <div id="buyback-vin-status" style="font-size:12px;color:var(--iron-smoke);margin-bottom:12px"></div>
+
+    <div class="form-row-3">
+      <div class="form-group"><label class="form-label">Model Year</label>
+        <select class="form-select" id="buyback-my">
+          <option value="">--</option><option value="MY23">MY23</option><option value="MY24">MY24</option><option value="MY25">MY25</option><option value="MY26">MY26</option>
+        </select>
+      </div>
+      <div class="form-group"><label class="form-label">Body</label>
+        <select class="form-select" id="buyback-body"><option value="Station Wagon">Station Wagon</option><option value="Quartermaster">Quartermaster</option></select>
+      </div>
+      <div class="form-group"><label class="form-label">Trim</label>
+        <select class="form-select" id="buyback-trim">
+          <option value="Fieldmaster">Fieldmaster</option>
+          <option value="Trialmaster">Trialmaster</option>
+          <option value="Belstaff">Belstaff</option>
+          <option value="Belstaff SE">Belstaff SE</option>
+          <option value="Base">Base</option>
+        </select>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label class="form-label">Exterior Color</label><input type="text" class="form-input" id="buyback-color"></div>
+      <div class="form-group"><label class="form-label">Mileage at Buyback</label><input type="number" class="form-input" id="buyback-mileage"></div>
+    </div>
+
+    <!-- Lemon Law specific fields -->
+    <div id="buyback-lemon-fields">
+      <hr class="section-divider">
+      <h4 style="font-size:13px;font-weight:600;margin:0 0 8px">Lemon Law / Dispute Details</h4>
+      <div class="form-row">
+        <div class="form-group"><label class="form-label">Claim / Case Number</label><input type="text" class="form-input" id="buyback-claim-no" placeholder="e.g. NHTSA-2026-001234"></div>
+        <div class="form-group"><label class="form-label">Defect Category</label>
+          <select class="form-select" id="buyback-defect">
+            <option value="">--</option>
+            <option value="Powertrain">Powertrain</option>
+            <option value="Electrical">Electrical</option>
+            <option value="Drivetrain / Transmission">Drivetrain / Transmission</option>
+            <option value="Suspension / Steering">Suspension / Steering</option>
+            <option value="Body / Interior">Body / Interior</option>
+            <option value="Safety System">Safety System</option>
+            <option value="Multiple / Other">Multiple / Other</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-group"><label class="form-label">Original Customer / Claimant</label><input type="text" class="form-input" id="buyback-customer" placeholder="Customer name or organization"></div>
+      <div class="form-group"><label class="form-label">Reason / Defect Description</label><textarea class="form-textarea" id="buyback-reason" placeholder="Brief description of the issue and resolution"></textarea></div>
+    </div>
+
+    <!-- Fleet Partner specific fields -->
+    <div id="buyback-partner-fields" style="display:none">
+      <hr class="section-divider">
+      <h4 style="font-size:13px;font-weight:600;margin:0 0 8px">Fleet Partner Return Details</h4>
+      <div class="form-row">
+        <div class="form-group"><label class="form-label">Partner</label>
+          <select class="form-select" id="buyback-partner">
+            <option value="">--</option>
+            <option value="Hertz">Hertz</option>
+            <option value="Sixt">Sixt</option>
+            <option value="Avis / Budget">Avis / Budget</option>
+            <option value="Enterprise">Enterprise</option>
+            <option value="National">National</option>
+            <option value="Other">Other</option>
+          </select>
+        </div>
+        <div class="form-group"><label class="form-label">Contract End Date</label><input type="date" class="form-input" id="buyback-contract-end"></div>
+      </div>
+      <div class="form-group"><label class="form-label">Vehicle Condition</label>
+        <select class="form-select" id="buyback-condition">
+          <option value="EXCELLENT">Excellent</option>
+          <option value="GOOD">Good</option>
+          <option value="FAIR">Fair</option>
+          <option value="POOR">Poor</option>
+          <option value="DAMAGED">Damaged</option>
+        </select>
+      </div>
+    </div>
+
+    <hr class="section-divider">
+    <div class="form-row">
+      <div class="form-group"><label class="form-label">Planned Disposition</label>
+        <select class="form-select" id="buyback-disposition">
+          <option value="">-- To be decided --</option>
+          <option value="Refurb & Re-enroll">Refurb & Re-enroll into program</option>
+          <option value="Send to De-Fleet">Send to De-Fleet (resale)</option>
+          <option value="Auction">Send to Auction</option>
+          <option value="Scrap / Salvage">Scrap / Salvage</option>
+          <option value="Hold for Inspection">Hold for Inspection</option>
+        </select>
+      </div>
+      <div class="form-group"><label class="form-label">Current Location</label><input type="text" class="form-input" id="buyback-location" placeholder="Holding lot, dealer, etc."></div>
+    </div>
+    <div class="form-group"><label class="form-label">Notes</label><textarea class="form-textarea" id="buyback-notes" placeholder="Additional context, next steps, escalations…"></textarea></div>
+
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="closeModal('buyback-modal')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveBuyback()">Record Buyback</button>
     </div>
   </div>
 </div>
@@ -1172,7 +1335,7 @@ function navigate(page) {
     dashboard:'Dashboard', iecp:'IECP', demo:'Demo Fleet',
     press:'Press & Marketing', ptos:'PTOS',
     drivers:'Driver Management', 'vehicle-detail':'Vehicle Detail',
-    defleet:'De-Fleet Log', 'fleet-flow':'Fleet Flow',
+    defleet:'De-Fleet Log', buyback:'Buyback Log', 'fleet-flow':'Fleet Flow',
     compliance:'Compliance Center', reporting:'Reporting', settings:'Settings & Data'
   };
   document.getElementById('topbar-title').textContent = titles[page] || page;
@@ -1194,6 +1357,7 @@ async function renderPage(page) {
   else if (page === 'ptos') await renderProgram('PTOS');
   else if (page === 'drivers') await renderDrivers();
   else if (page === 'defleet') await renderDeFleetLog();
+  else if (page === 'buyback') await renderBuybackLog();
   else if (page === 'fleet-flow') await renderFleetFlow();
   else if (page === 'compliance') await renderCompliance();
   else if (page === 'reporting') await renderReport();
@@ -1324,7 +1488,7 @@ async function renderProgram(program) {
   const regionFilter = regionEl?.value || '';
 
   let filtered = all.filter(v => {
-    if (v.status === 'DEFLEET') return false;
+    if (v.status === 'DEFLEET' || v.status === 'BUYBACK') return false;
     if (search && !v.vin.toLowerCase().includes(search)
         && !(v.assignedDealer||'').toLowerCase().includes(search)
         && !(v.assignedTo||'').toLowerCase().includes(search)) return false;
@@ -1383,7 +1547,7 @@ async function renderIECP() {
   const statusFilter = document.getElementById('iecp-filter-status')?.value || '';
 
   let filtered = iecp.filter(v => {
-    if (v.status === 'DEFLEET') return false;
+    if (v.status === 'DEFLEET' || v.status === 'BUYBACK') return false;
     if (search && !v.vin.toLowerCase().includes(search) && !(v.assignedEmployee||'').toLowerCase().includes(search)) return false;
     if (statusFilter && v.status !== statusFilter) return false;
     return true;
@@ -1554,6 +1718,31 @@ async function openVehicleDetail(vin) {
         <div class="detail-item"><div class="detail-label">Destination</div><div class="detail-value">${v.deFleetDestination||'-'}</div></div>
         ${v.deFleetNotes ? '<div class="detail-item" style="grid-column:1/-1"><div class="detail-label">Notes</div><div class="detail-value">'+v.deFleetNotes+'</div></div>' : ''}
       </div>
+      ` : v.status === 'BUYBACK' ? `
+      <div style="background:#3b82f6;color:#fff;padding:10px 14px;border-radius:4px;font-size:13px;margin-bottom:12px">This vehicle is in buyback. ${buybackTypeBadge(v.buybackType)}</div>
+      <div class="detail-grid" style="margin-bottom:12px">
+        <div class="detail-item"><div class="detail-label">Buyback Date</div><div class="detail-value">${fmtDate(v.buybackDate)}</div></div>
+        <div class="detail-item"><div class="detail-label">Buyback Cost</div><div class="detail-value">${v.buybackCost ? fmt$(v.buybackCost) : '-'}</div></div>
+        ${v.buybackType === 'LEMON_LAW' ? `
+          <div class="detail-item"><div class="detail-label">Claim Number</div><div class="detail-value">${v.buybackClaimNumber||'-'}</div></div>
+          <div class="detail-item"><div class="detail-label">Defect Category</div><div class="detail-value">${v.buybackDefectCategory||'-'}</div></div>
+          <div class="detail-item"><div class="detail-label">Customer</div><div class="detail-value">${v.buybackCustomer||'-'}</div></div>
+          ${v.buybackReason ? '<div class="detail-item" style="grid-column:1/-1"><div class="detail-label">Reason</div><div class="detail-value">'+v.buybackReason+'</div></div>' : ''}
+        ` : ''}
+        ${v.buybackType === 'FLEET_PARTNER' ? `
+          <div class="detail-item"><div class="detail-label">Partner</div><div class="detail-value">${v.buybackPartner||'-'}</div></div>
+          <div class="detail-item"><div class="detail-label">Contract End</div><div class="detail-value">${fmtDate(v.buybackContractEnd)}</div></div>
+          <div class="detail-item"><div class="detail-label">Condition</div><div class="detail-value">${v.buybackCondition||'-'}</div></div>
+        ` : ''}
+        <div class="detail-item"><div class="detail-label">Disposition</div><div class="detail-value">${v.buybackDisposition||'TBD'}</div></div>
+        <div class="detail-item"><div class="detail-label">Location</div><div class="detail-value">${v.buybackLocation||'-'}</div></div>
+        ${v.buybackNotes ? '<div class="detail-item" style="grid-column:1/-1"><div class="detail-label">Notes</div><div class="detail-value">'+v.buybackNotes+'</div></div>' : ''}
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn btn-primary btn-sm" onclick="reEnrollFromBuyback('${v.vin}')">Re-enroll into Program</button>
+        <button class="btn btn-secondary btn-sm" onclick="openDeFleetModal('${v.vin}')">Send to De-Fleet</button>
+        <button class="btn btn-outline btn-sm" onclick="openBuybackModal('${v.vin}')">Edit Buyback Details</button>
+      </div>
       ` : `
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         ${v.status==='ACTIVE'||v.status==='ENROLLED' ? `
@@ -1566,6 +1755,7 @@ async function openVehicleDetail(vin) {
         ` : ''}
         ${v.status==='RETURNED' ? `<button class="btn btn-secondary btn-sm" onclick="updateVehicleStatus('${v.vin}','RETAILED')">Mark Retailed</button>` : ''}
         <button class="btn btn-outline btn-sm" onclick="editVehicle('${v.vin}')">Edit Vehicle</button>
+        <button class="btn btn-secondary btn-sm" onclick="openBuybackModal('${v.vin}')">Initiate Buyback</button>
         <button class="btn btn-danger btn-sm" onclick="openDeFleetModal('${v.vin}')">De-Fleet Vehicle</button>
       </div>
       `}
@@ -2094,6 +2284,253 @@ async function saveDeFleet() {
   openVehicleDetail(vin);
 }
 
+// ===== BUYBACK =====
+const BUYBACK_TYPE_LABELS = { LEMON_LAW: 'Lemon Law', FLEET_PARTNER: 'Fleet Partner' };
+
+function buybackTypeBadge(type) {
+  if (type === 'LEMON_LAW')    return '<span class="badge" style="background:#CC0200;color:#fff">Lemon Law</span>';
+  if (type === 'FLEET_PARTNER') return '<span class="badge" style="background:#3b82f6;color:#fff">Fleet Partner</span>';
+  return '<span class="badge badge-neutral">Buyback</span>';
+}
+
+function openBuybackModal(prefillVin) {
+  document.getElementById('buyback-modal-title').textContent = 'New Buyback';
+  document.getElementById('buyback-vin').value = prefillVin || '';
+  document.getElementById('buyback-vin').disabled = false;
+  document.getElementById('buyback-vin-status').textContent = '';
+  document.getElementById('buyback-type').value = 'LEMON_LAW';
+  document.getElementById('buyback-date').value = new Date().toISOString().slice(0,10);
+  document.getElementById('buyback-cost').value = '';
+  document.getElementById('buyback-my').value = '';
+  document.getElementById('buyback-body').value = 'Station Wagon';
+  document.getElementById('buyback-trim').value = 'Fieldmaster';
+  document.getElementById('buyback-color').value = '';
+  document.getElementById('buyback-mileage').value = '';
+  document.getElementById('buyback-claim-no').value = '';
+  document.getElementById('buyback-defect').value = '';
+  document.getElementById('buyback-customer').value = '';
+  document.getElementById('buyback-reason').value = '';
+  document.getElementById('buyback-partner').value = '';
+  document.getElementById('buyback-contract-end').value = '';
+  document.getElementById('buyback-condition').value = 'GOOD';
+  document.getElementById('buyback-disposition').value = '';
+  document.getElementById('buyback-location').value = '';
+  document.getElementById('buyback-notes').value = '';
+  onBuybackTypeChange();
+  if (prefillVin) checkBuybackVinExists();
+  openModal('buyback-modal');
+}
+
+function onBuybackTypeChange() {
+  const type = document.getElementById('buyback-type').value;
+  document.getElementById('buyback-lemon-fields').style.display   = type === 'LEMON_LAW' ? 'block' : 'none';
+  document.getElementById('buyback-partner-fields').style.display = type === 'FLEET_PARTNER' ? 'block' : 'none';
+}
+
+async function checkBuybackVinExists() {
+  const vin = document.getElementById('buyback-vin').value.trim().toUpperCase();
+  const statusEl = document.getElementById('buyback-vin-status');
+  if (vin.length !== 17) { statusEl.textContent = ''; return; }
+  const existing = await dbGet('vehicles', vin);
+  if (existing) {
+    statusEl.innerHTML = `✓ VIN found in fleet — currently <strong>${existing.program} / ${existing.status}</strong>. Buyback will update this vehicle.`;
+    statusEl.style.color = 'var(--success)';
+    // Pre-fill the form from existing vehicle data
+    if (existing.modelYear) document.getElementById('buyback-my').value = existing.modelYear;
+    if (existing.body)      document.getElementById('buyback-body').value = existing.body;
+    if (existing.trim)      document.getElementById('buyback-trim').value = existing.trim;
+    if (existing.exteriorColor) document.getElementById('buyback-color').value = existing.exteriorColor;
+    if (existing.currentMileage) document.getElementById('buyback-mileage').value = existing.currentMileage;
+  } else {
+    statusEl.innerHTML = '+ VIN not in fleet — will be added as a new buyback record.';
+    statusEl.style.color = 'var(--iron-smoke)';
+  }
+}
+
+async function saveBuyback() {
+  const vin = document.getElementById('buyback-vin').value.trim().toUpperCase();
+  const buybackDate = document.getElementById('buyback-date').value;
+  if (vin.length !== 17 || !/^[A-HJ-NPR-Z0-9]{17}$/.test(vin)) return toast('Enter a valid 17-character VIN', 'error');
+  if (!buybackDate) return toast('Buyback date is required', 'error');
+
+  const type = document.getElementById('buyback-type').value;
+  const mileage = Number(document.getElementById('buyback-mileage').value) || 0;
+  const cost = Number(document.getElementById('buyback-cost').value) || 0;
+
+  let v = await dbGet('vehicles', vin);
+  const isNew = !v;
+  const before = v ? { status: v.status } : null;
+
+  if (!v) {
+    // Brand new vehicle entry — minimal record so the buyback can be tracked
+    v = {
+      vin,
+      program: 'BUYBACK',
+      status: 'BUYBACK',
+      modelYear: document.getElementById('buyback-my').value || '',
+      body: document.getElementById('buyback-body').value || 'Station Wagon',
+      trim: document.getElementById('buyback-trim').value || '',
+      exteriorColor: document.getElementById('buyback-color').value || '',
+      msrp: 0,
+      assignedDealer: '',
+      enrollmentDate: buybackDate,
+      currentMileage: mileage,
+      mileageEntries: [],
+      complianceFlags: [],
+      history: [],
+      createdAt: new Date().toISOString(),
+    };
+  } else {
+    // Existing vehicle — flip status and capture buyback info
+    v.status = 'BUYBACK';
+    if (mileage > 0) v.currentMileage = mileage;
+    // Update fields if user entered them
+    const newMy = document.getElementById('buyback-my').value;
+    const newBody = document.getElementById('buyback-body').value;
+    const newTrim = document.getElementById('buyback-trim').value;
+    const newColor = document.getElementById('buyback-color').value;
+    if (newMy)    v.modelYear = newMy;
+    if (newBody)  v.body = newBody;
+    if (newTrim)  v.trim = newTrim;
+    if (newColor) v.exteriorColor = newColor;
+  }
+
+  // Buyback fields (always set)
+  v.buybackType        = type;
+  v.buybackDate        = buybackDate;
+  v.buybackCost        = cost;
+  v.buybackDisposition = document.getElementById('buyback-disposition').value || '';
+  v.buybackLocation    = document.getElementById('buyback-location').value.trim();
+  v.buybackNotes       = document.getElementById('buyback-notes').value.trim();
+  v.buybackFinalized   = false;
+
+  if (type === 'LEMON_LAW') {
+    v.buybackClaimNumber = document.getElementById('buyback-claim-no').value.trim();
+    v.buybackDefectCategory = document.getElementById('buyback-defect').value;
+    v.buybackCustomer    = document.getElementById('buyback-customer').value.trim();
+    v.buybackReason      = document.getElementById('buyback-reason').value.trim();
+    // Clear fleet-partner-only fields so the data stays clean
+    v.buybackPartner     = '';
+    v.buybackContractEnd = '';
+    v.buybackCondition   = '';
+  } else if (type === 'FLEET_PARTNER') {
+    v.buybackPartner     = document.getElementById('buyback-partner').value;
+    v.buybackContractEnd = document.getElementById('buyback-contract-end').value || '';
+    v.buybackCondition   = document.getElementById('buyback-condition').value;
+    v.buybackClaimNumber = '';
+    v.buybackDefectCategory = '';
+    v.buybackCustomer    = '';
+    v.buybackReason      = '';
+  }
+
+  if (mileage > 0) {
+    v.mileageEntries = v.mileageEntries || [];
+    v.mileageEntries.push({ date: buybackDate, odometer: mileage, source: 'buyback' });
+  }
+  v.updatedAt = new Date().toISOString();
+
+  await dbPut('vehicles', v);
+  await audit('BUYBACK', 'VEHICLE', vin, before, { status: 'BUYBACK', buybackType: type, buybackCost: cost },
+    `Buyback recorded: ${BUYBACK_TYPE_LABELS[type]}${isNew ? ' (new VIN)' : ''} — ${fmt$(cost)}`);
+  closeModal('buyback-modal');
+  toast('Buyback recorded', 'success');
+  renderBuybackLog();
+}
+
+async function renderBuybackLog() {
+  const vehicles = await dbGetAll('vehicles');
+  const search = (document.getElementById('buyback-search')?.value || '').toLowerCase();
+  const typeFilter = document.getElementById('buyback-filter-type')?.value || '';
+  const finalFilter = document.getElementById('buyback-filter-finalized')?.value || '';
+
+  let buybacks = vehicles.filter(v => {
+    if (v.status !== 'BUYBACK') return false;
+    if (typeFilter && v.buybackType !== typeFilter) return false;
+    if (finalFilter === 'yes' && !v.buybackFinalized) return false;
+    if (finalFilter === 'no' && v.buybackFinalized) return false;
+    if (search) {
+      const hay = [v.vin, v.buybackClaimNumber, v.buybackPartner, v.buybackReason, v.buybackCustomer, v.buybackDefectCategory, v.trim, v.exteriorColor]
+        .map(x => (x || '').toLowerCase()).join(' ');
+      if (!hay.includes(search)) return false;
+    }
+    return true;
+  });
+  buybacks.sort((a, b) => (b.buybackDate || '').localeCompare(a.buybackDate || ''));
+
+  const totalCost = buybacks.reduce((s, v) => s + (v.buybackCost || 0), 0);
+  const lemonCount = buybacks.filter(v => v.buybackType === 'LEMON_LAW').length;
+  const partnerCount = buybacks.filter(v => v.buybackType === 'FLEET_PARTNER').length;
+  const finalized = buybacks.filter(v => v.buybackFinalized).length;
+
+  document.getElementById('buyback-table').innerHTML = buybacks.length ? buybacks.map(v => {
+    const counterparty = v.buybackType === 'LEMON_LAW'
+      ? (v.buybackCustomer || '-')
+      : (v.buybackPartner || '-');
+    const reason = v.buybackType === 'LEMON_LAW'
+      ? (v.buybackClaimNumber || v.buybackDefectCategory || '-')
+      : (v.buybackCondition || '-');
+    return `
+    <tr>
+      <td style="text-align:center;vertical-align:middle" onclick="event.stopPropagation()">
+        <input type="checkbox" ${v.buybackFinalized ? 'checked' : ''}
+          onchange="toggleBuybackFinalized('${v.vin}', this.checked)"
+          title="${v.buybackFinalized ? 'Finalized' : 'Mark as finalized'}"
+          style="width:16px;height:16px;cursor:pointer;accent-color:var(--flare-red)">
+      </td>
+      <td style="font-family:monospace;font-weight:600;cursor:pointer" onclick="openVehicleDetail('${v.vin}')">${vinShort(v.vin)}</td>
+      <td>${buybackTypeBadge(v.buybackType)}</td>
+      <td>${v.trim||'-'}</td>
+      <td>${v.exteriorColor||'-'}</td>
+      <td>${fmtDate(v.buybackDate)}</td>
+      <td style="font-size:12px">${reason}</td>
+      <td>${counterparty}</td>
+      <td>${v.buybackCost ? fmt$(v.buybackCost) : '-'}</td>
+      <td>${v.currentMileage ? v.currentMileage.toLocaleString()+' mi' : '-'}</td>
+      <td style="font-size:12px;color:var(--iron-smoke)">${v.buybackDisposition||'TBD'}</td>
+    </tr>`;
+  }).join('') : '<tr><td colspan="11" style="text-align:center;color:var(--silver-dust);padding:40px">No buybacks recorded</td></tr>';
+
+  document.getElementById('buyback-summary').innerHTML = buybacks.length ? `
+    <div style="display:flex;gap:16px;flex-wrap:wrap">
+      <div class="summary-card"><div class="summary-card-label">Total Buybacks</div><div class="summary-card-value">${buybacks.length}</div></div>
+      <div class="summary-card"><div class="summary-card-label">Lemon Law / Dispute</div><div class="summary-card-value" style="color:var(--error)">${lemonCount}</div></div>
+      <div class="summary-card"><div class="summary-card-label">Fleet Partner</div><div class="summary-card-value">${partnerCount}</div></div>
+      <div class="summary-card"><div class="summary-card-label">Finalized</div><div class="summary-card-value" style="color:var(--success)">${finalized}</div></div>
+      <div class="summary-card"><div class="summary-card-label">In Progress</div><div class="summary-card-value" style="color:var(--amber)">${buybacks.length - finalized}</div></div>
+      <div class="summary-card"><div class="summary-card-label">Total Buyback Cost</div><div class="summary-card-value">${fmt$(totalCost)}</div></div>
+    </div>
+  ` : '';
+}
+
+async function toggleBuybackFinalized(vin, finalized) {
+  const v = await dbGet('vehicles', vin);
+  if (!v) return;
+  v.buybackFinalized = finalized;
+  v.updatedAt = new Date().toISOString();
+  await dbPut('vehicles', v);
+  await audit('UPDATE', 'VEHICLE', vin, { buybackFinalized: !finalized }, { buybackFinalized: finalized },
+    `Buyback ${finalized ? 'marked finalized' : 'finalized status removed'}`);
+  renderBuybackLog();
+}
+
+async function reEnrollFromBuyback(vin) {
+  const v = await dbGet('vehicles', vin);
+  if (!v) return;
+  const program = prompt('Re-enroll into which program? (IECP, DEMO, PRESS_MARKETING, PTOS)', 'PTOS');
+  if (!program) return;
+  const validPrograms = ['IECP','DEMO','PRESS_MARKETING','PTOS'];
+  if (!validPrograms.includes(program.toUpperCase())) return toast('Invalid program', 'error');
+  const before = { status: v.status, program: v.program };
+  v.program = program.toUpperCase();
+  v.status = 'ACTIVE';
+  v.enrollmentDate = new Date().toISOString().slice(0,10);
+  v.updatedAt = new Date().toISOString();
+  await dbPut('vehicles', v);
+  await audit('REENROLL', 'VEHICLE', vin, before, { status: 'ACTIVE', program: v.program }, `Re-enrolled from buyback into ${v.program}`);
+  toast(`Re-enrolled into ${v.program}`, 'success');
+  openVehicleDetail(vin);
+}
+
 async function renderDeFleetLog() {
   const vehicles = await dbGetAll('vehicles');
   const search = (document.getElementById('defleet-search')?.value || '').toLowerCase();
@@ -2172,7 +2609,8 @@ async function renderFleetFlow() {
   const STATUS_LABELS = {
     ACTIVE: 'Active', ENROLLED: 'Enrolled', PENDING_RETURN: 'Pending Return',
     RETURNED: 'Returned', RETAILED: 'Retailed', FLAGGED: 'Flagged',
-    SUSPENDED: 'Suspended', TERMINATED: 'Terminated', DEFLEET: 'De-Fleeted'
+    SUSPENDED: 'Suspended', TERMINATED: 'Terminated', DEFLEET: 'De-Fleeted',
+    BUYBACK: 'Buyback'
   };
 
   // Collect unique programs, statuses, and exit types that actually have vehicles
@@ -2188,7 +2626,8 @@ async function renderFleetFlow() {
   const STATUS_COLORS = {
     ACTIVE: '#2C931E', ENROLLED: '#2C931E', PENDING_RETURN: '#eab308',
     RETURNED: '#f97316', RETAILED: '#6b7280', FLAGGED: '#CC0200',
-    SUSPENDED: '#CC0200', TERMINATED: '#1D1D1D', DEFLEET: '#1D1D1D'
+    SUSPENDED: '#CC0200', TERMINATED: '#1D1D1D', DEFLEET: '#1D1D1D',
+    BUYBACK: '#3b82f6'
   };
 
   // Add program nodes
@@ -2285,16 +2724,20 @@ async function renderFleetFlow() {
   const total = filtered.length;
   const activeCount = filtered.filter(v => v.status === 'ACTIVE' || v.status === 'ENROLLED').length;
   const defleetCount = filtered.filter(v => v.status === 'DEFLEET').length;
+  const buybackCount = filtered.filter(v => v.status === 'BUYBACK').length;
   const pendingCount = filtered.filter(v => v.status === 'PENDING_RETURN').length;
   const returnedCount = filtered.filter(v => v.status === 'RETURNED' || v.status === 'RETAILED').length;
   const totalSales = filtered.filter(v => v.status === 'DEFLEET').reduce((s, v) => s + (v.deFleetSalePrice || 0), 0);
+  const totalBuybackCost = filtered.filter(v => v.status === 'BUYBACK').reduce((s, v) => s + (v.buybackCost || 0), 0);
 
   document.getElementById('sankey-summary').innerHTML = `
     <div class="summary-card"><div class="summary-card-label">Total Vehicles</div><div class="summary-card-value">${total}</div></div>
     <div class="summary-card"><div class="summary-card-label">In Service</div><div class="summary-card-value" style="color:var(--success)">${activeCount}</div></div>
     <div class="summary-card"><div class="summary-card-label">Pending Return</div><div class="summary-card-value" style="color:var(--amber)">${pendingCount}</div></div>
     <div class="summary-card"><div class="summary-card-label">Returned / Retailed</div><div class="summary-card-value">${returnedCount}</div></div>
+    ${buybackCount > 0 ? `<div class="summary-card"><div class="summary-card-label">In Buyback</div><div class="summary-card-value" style="color:#3b82f6">${buybackCount}</div></div>` : ''}
     <div class="summary-card"><div class="summary-card-label">De-Fleeted</div><div class="summary-card-value">${defleetCount}</div></div>
+    ${totalBuybackCost > 0 ? `<div class="summary-card"><div class="summary-card-label">Buyback Cost</div><div class="summary-card-value">${fmt$(totalBuybackCost)}</div></div>` : ''}
     ${totalSales > 0 ? `<div class="summary-card"><div class="summary-card-label">De-Fleet Proceeds</div><div class="summary-card-value">${fmt$(totalSales)}</div></div>` : ''}
   `;
 }
