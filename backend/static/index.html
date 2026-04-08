@@ -610,13 +610,16 @@ input[type="file"]{display:none}
         </div>
         <div class="card" style="margin-bottom:20px">
           <h3 class="section-title">CSV Import</h3>
-          <p style="font-size:13px;color:var(--iron-smoke);margin-bottom:16px">Bulk import vehicles or mileage updates from CSV files.</p>
+          <p style="font-size:13px;color:var(--iron-smoke);margin-bottom:16px">Bulk import vehicles, drivers, or mileage updates from CSV files. Existing records are matched by VIN (vehicles, mileage) or Employee ID / Email (drivers) and updated in place.</p>
           <div style="display:flex;gap:12px;flex-wrap:wrap">
             <button class="btn btn-secondary" onclick="document.getElementById('import-vehicles-csv').click()">Import Vehicles CSV</button>
             <input type="file" id="import-vehicles-csv" accept=".csv" onchange="importVehiclesCSV(event)">
+            <button class="btn btn-secondary" onclick="document.getElementById('import-drivers-csv').click()">Import Drivers CSV</button>
+            <input type="file" id="import-drivers-csv" accept=".csv" onchange="importDriversCSV(event)">
             <button class="btn btn-secondary" onclick="document.getElementById('import-mileage-csv').click()">Import Mileage CSV</button>
             <input type="file" id="import-mileage-csv" accept=".csv" onchange="importMileageCSV(event)">
             <button class="btn btn-outline" onclick="downloadCSVTemplate('vehicles')">Download Vehicle Template</button>
+            <button class="btn btn-outline" onclick="downloadCSVTemplate('drivers')">Download Driver Template</button>
             <button class="btn btn-outline" onclick="downloadCSVTemplate('mileage')">Download Mileage Template</button>
           </div>
         </div>
@@ -3324,20 +3327,132 @@ async function importMileageCSV(e) {
 }
 
 function downloadCSVTemplate(type) {
-  let csv;
+  let csv, filename;
   if (type === 'vehicles') {
     csv = 'vin,program,modelyear,body,trim,color,msrp,dealer,dealercode,region,rbm,mileage,enrollmentdate,inservicedate,employee,department,assignedto,purpose\n';
     csv += 'SAMPLEVIN12345678,IECP,MY25,Station Wagon,Fieldmaster,White,86900,Charlotte INEOS,CLT,Southeast,Frederick Valdez,0,2026-04-01,,,Engineering,,\n';
     csv += 'SAMPLEVIN87654321,DEMO,MY25,Station Wagon,Trialmaster,Satin Black,89000,Sewell INEOS,SWL,Central,Brant Scott,0,2026-04-01,,,,Dealer Demo\n';
+    filename = 'vehicle_import_template.csv';
+  } else if (type === 'drivers') {
+    csv = 'name,email,department,employeeid,dateofbirth,licensestate,licensenumber,licenseexpiration,riskscore,lastmvrcheck,insurancecompliant,assignedvin,notes\n';
+    csv += 'Jane Doe,jane.doe@ineos.com,Engineering,E12345,1985-06-15,TX,D1234567,2028-06-15,LOW,2026-01-10,true,SAMPLEVIN12345678,\n';
+    csv += 'John Smith,john.smith@ineos.com,Sales,E67890,1990-02-22,CA,B9876543,2027-02-22,LOW,,true,,New hire\n';
+    filename = 'driver_import_template.csv';
   } else {
     csv = 'vin,date,odometer,source\n';
     csv += 'SAMPLEVIN12345678,2026-04-01,1500,dealer report\n';
+    filename = 'mileage_import_template.csv';
   }
   const blob = new Blob([csv], { type: 'text/csv' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = type === 'vehicles' ? 'vehicle_import_template.csv' : 'mileage_import_template.csv';
+  a.download = filename;
   a.click();
+}
+
+async function importDriversCSV(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const text = await file.text();
+  const lines = text.split(/\r?\n/).filter(l => l.trim());
+  if (lines.length < 2) { e.target.value=''; return toast('CSV must have header + data rows', 'error'); }
+
+  // Simple CSV parser that handles quoted fields with commas
+  const parseRow = (line) => {
+    const out = []; let cur = ''; let inQ = false;
+    for (let i = 0; i < line.length; i++) {
+      const c = line[i];
+      if (c === '"') { if (inQ && line[i+1] === '"') { cur += '"'; i++; } else inQ = !inQ; }
+      else if (c === ',' && !inQ) { out.push(cur); cur = ''; }
+      else cur += c;
+    }
+    out.push(cur);
+    return out.map(s => s.trim());
+  };
+
+  const headers = parseRow(lines[0]).map(h => h.toLowerCase().replace(/[_\s-]/g, ''));
+  const idx = (key) => headers.indexOf(key);
+
+  const col = {
+    name:     idx('name'),
+    email:    idx('email'),
+    dept:     idx('department'),
+    empid:    idx('employeeid'),
+    dob:      idx('dateofbirth'),
+    licState: idx('licensestate'),
+    licNum:   idx('licensenumber'),
+    licExp:   idx('licenseexpiration'),
+    risk:     idx('riskscore'),
+    lastMvr:  idx('lastmvrcheck'),
+    insured:  idx('insurancecompliant'),
+    vin:      idx('assignedvin'),
+    notes:    idx('notes'),
+  };
+
+  if (col.name < 0) { e.target.value=''; return toast('CSV must include a "name" column', 'error'); }
+
+  const existing = await dbGetAll('drivers');
+  const byEmail = {}, byEmpId = {};
+  existing.forEach(d => {
+    if (d.email) byEmail[d.email.toLowerCase()] = d;
+    if (d.employeeId) byEmpId[d.employeeId] = d;
+  });
+
+  let created = 0, updated = 0, skipped = 0;
+  for (let i = 1; i < lines.length; i++) {
+    const row = parseRow(lines[i]);
+    const name = (row[col.name] || '').trim();
+    if (!name) { skipped++; continue; }
+
+    const email   = col.email   >= 0 ? (row[col.email]  || '').trim() : '';
+    const empid   = col.empid   >= 0 ? (row[col.empid]  || '').trim() : '';
+    const dept    = col.dept    >= 0 ? (row[col.dept]   || '').trim() : '';
+    const dob     = col.dob     >= 0 ? (row[col.dob]    || '').trim() : '';
+    const licSt   = col.licState>= 0 ? (row[col.licState]|| '').trim().toUpperCase() : '';
+    const licNum  = col.licNum  >= 0 ? (row[col.licNum] || '').trim().toUpperCase() : '';
+    const licExp  = col.licExp  >= 0 ? (row[col.licExp] || '').trim() : '';
+    const risk    = col.risk    >= 0 ? ((row[col.risk]  || 'LOW').trim().toUpperCase()) : 'LOW';
+    const lastMvr = col.lastMvr >= 0 ? (row[col.lastMvr]|| '').trim() : '';
+    const insured = col.insured >= 0 ? /^(true|yes|y|1)$/i.test((row[col.insured]||'').trim()) : true;
+    const vin     = col.vin     >= 0 ? (row[col.vin]    || '').trim().toUpperCase() : '';
+    const notes   = col.notes   >= 0 ? (row[col.notes]  || '').trim() : '';
+
+    const existingDriver = (email && byEmail[email.toLowerCase()]) || (empid && byEmpId[empid]);
+    const isUpdate = !!existingDriver;
+
+    const driver = existingDriver ? { ...existingDriver } : {
+      id: 'DRV-' + Date.now() + '-' + i,
+      status: 'ACTIVE',
+      violations: [],
+      trainingCompleted: [],
+      history: [],
+    };
+
+    driver.name              = name;
+    driver.email             = email || driver.email || '';
+    driver.department        = dept || driver.department || '';
+    driver.employeeId        = empid || driver.employeeId || '';
+    driver.dateOfBirth       = dob || driver.dateOfBirth || null;
+    driver.licenseState      = licSt || driver.licenseState || '';
+    driver.licenseNumber     = licNum || driver.licenseNumber || null;
+    driver.licenseExpiration = licExp || driver.licenseExpiration || null;
+    driver.riskScore         = ['LOW','MEDIUM','HIGH','CRITICAL'].includes(risk) ? risk : (driver.riskScore || 'LOW');
+    driver.lastMvrCheck      = lastMvr || driver.lastMvrCheck || null;
+    driver.insuranceCompliant= insured;
+    driver.assignedVin       = vin || driver.assignedVin || null;
+    driver.notes             = notes || driver.notes || '';
+    driver.updatedAt         = new Date().toISOString();
+
+    await dbPut('drivers', driver);
+    if (isUpdate) updated++; else created++;
+    if (email) byEmail[email.toLowerCase()] = driver;
+    if (empid) byEmpId[empid] = driver;
+  }
+
+  await audit('IMPORT', 'DRIVER', 'csv', null, null, `Drivers CSV: ${created} created, ${updated} updated, ${skipped} skipped`);
+  toast(`${created} new, ${updated} updated${skipped ? ', '+skipped+' skipped' : ''}`, 'success');
+  e.target.value = '';
+  if (currentPage === 'drivers') renderPage('drivers');
 }
 
 function exportCSV(program) {
