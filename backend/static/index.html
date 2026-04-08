@@ -443,7 +443,7 @@ input[type="file"]{display:none}
       <div class="table-wrap">
         <table><thead><tr>
           <th>Name</th><th>Department</th><th>Employee ID</th><th>License ID</th><th>Vehicle</th>
-          <th>License Exp.</th><th>Risk</th><th>DMV Pts</th><th>Last MVR</th><th>Eligible</th>
+          <th>License Exp.</th><th>Risk</th><th>DMV Pts</th><th>Last MVR</th><th>Eligible</th><th style="width:70px"></th>
         </tr></thead><tbody id="driver-table"></tbody></table>
       </div>
     </div>
@@ -1069,9 +1069,12 @@ input[type="file"]{display:none}
 
     <div class="form-group"><label class="form-label">Notes</label><textarea class="form-textarea" id="drv-notes"></textarea></div>
     <input type="hidden" id="drv-edit-id">
-    <div class="modal-actions">
-      <button class="btn btn-outline" onclick="closeModal('driver-modal')">Cancel</button>
-      <button class="btn btn-primary" onclick="saveDriver()">Save Driver</button>
+    <div class="modal-actions" style="justify-content:space-between">
+      <button class="btn btn-danger" id="drv-delete-btn" onclick="deleteDriverFromModal()" style="display:none">Delete Driver</button>
+      <div style="display:flex;gap:8px;margin-left:auto">
+        <button class="btn btn-outline" onclick="closeModal('driver-modal')">Cancel</button>
+        <button class="btn btn-primary" onclick="saveDriver()">Save Driver</button>
+      </div>
     </div>
   </div>
 </div>
@@ -1839,20 +1842,41 @@ async function renderDrivers() {
 
   document.getElementById('driver-table').innerHTML = filtered.length ? filtered.map(({d, calc}) => {
     const fullName = (d.firstName || d.lastName) ? `${d.firstName||''} ${d.lastName||''}`.trim() : (d.name || '-');
+    const safeName = fullName.replace(/'/g, "\\'");
     return `
-    <tr onclick="openDriverDetail('${d.id}')">
-      <td style="font-weight:500">${fullName}</td>
-      <td>${d.department||'-'}</td>
-      <td>${d.employeeId||'-'}</td>
-      <td style="font-family:monospace;font-size:12px">${d.licenseNumber||'-'}</td>
-      <td style="font-family:monospace">${d.assignedVin ? vinShort(d.assignedVin) : '-'}</td>
-      <td>${fmtDate(d.licenseExpiration)}</td>
-      <td>${riskBadge(calc.risk)}</td>
-      <td style="text-align:center">${d.dmvPoints || 0}</td>
-      <td>${fmtDate(d.lastMvrCheck)}</td>
-      <td>${calc.eligible ? '<span style="color:var(--success);font-weight:600">Yes</span>' : '<span style="color:var(--error);font-weight:600">No</span>'}</td>
+    <tr>
+      <td onclick="openDriverDetail('${d.id}')" style="font-weight:500;cursor:pointer">${fullName}</td>
+      <td onclick="openDriverDetail('${d.id}')" style="cursor:pointer">${d.department||'-'}</td>
+      <td onclick="openDriverDetail('${d.id}')" style="cursor:pointer">${d.employeeId||'-'}</td>
+      <td onclick="openDriverDetail('${d.id}')" style="font-family:monospace;font-size:12px;cursor:pointer">${d.licenseNumber||'-'}</td>
+      <td onclick="openDriverDetail('${d.id}')" style="font-family:monospace;cursor:pointer">${d.assignedVin ? vinShort(d.assignedVin) : '-'}</td>
+      <td onclick="openDriverDetail('${d.id}')" style="cursor:pointer">${fmtDate(d.licenseExpiration)}</td>
+      <td onclick="openDriverDetail('${d.id}')" style="cursor:pointer">${riskBadge(calc.risk)}</td>
+      <td onclick="openDriverDetail('${d.id}')" style="text-align:center;cursor:pointer">${d.dmvPoints || 0}</td>
+      <td onclick="openDriverDetail('${d.id}')" style="cursor:pointer">${fmtDate(d.lastMvrCheck)}</td>
+      <td onclick="openDriverDetail('${d.id}')" style="cursor:pointer">${calc.eligible ? '<span style="color:var(--success);font-weight:600">Yes</span>' : '<span style="color:var(--error);font-weight:600">No</span>'}</td>
+      <td style="text-align:center" onclick="event.stopPropagation()">
+        <button class="btn btn-danger btn-sm" onclick="deleteDriver('${d.id}', '${safeName}')" title="Delete driver">Delete</button>
+      </td>
     </tr>`;
-  }).join('') : '<tr><td colspan="10" style="text-align:center;color:var(--silver-dust);padding:40px">No drivers found</td></tr>';
+  }).join('') : '<tr><td colspan="11" style="text-align:center;color:var(--silver-dust);padding:40px">No drivers found</td></tr>';
+}
+
+async function deleteDriver(id, fullName) {
+  const d = await dbGet('drivers', id);
+  if (!d) return toast('Driver not found', 'error');
+
+  // If the driver has a vehicle assigned, warn the user
+  let msg = `Delete driver "${fullName}"? This cannot be undone.`;
+  if (d.assignedVin) {
+    msg = `⚠ "${fullName}" is currently assigned to vehicle ${d.assignedVin}.\n\nDeleting the driver will NOT remove the vehicle, but will leave the assignment dangling. Continue?`;
+  }
+  if (!confirm(msg)) return;
+
+  await dbDelete('drivers', id);
+  await audit('DELETE', 'DRIVER', id, d, null, `Deleted driver ${fullName}${d.assignedVin ? ' (was assigned to ' + d.assignedVin + ')' : ''}`);
+  toast('Driver deleted', 'success');
+  renderDrivers();
 }
 
 // ===== VEHICLE DETAIL =====
@@ -3417,6 +3441,8 @@ function _renderMajorOffensesCheckboxes(selectedIds) {
 function openDriverModal(editId) {
   document.getElementById('driver-modal-title').textContent = editId ? 'Edit Driver' : 'Add Driver';
   document.getElementById('drv-edit-id').value = editId || '';
+  // Delete button only appears in edit mode
+  document.getElementById('drv-delete-btn').style.display = editId ? 'inline-flex' : 'none';
   if (!editId) {
     ['drv-firstname','drv-lastname','drv-email','drv-phone','drv-dept','drv-empid','drv-dob',
      'drv-street','drv-city','drv-state','drv-zip',
@@ -3431,6 +3457,18 @@ function openDriverModal(editId) {
     recalcModalRisk();
   }
   openModal('driver-modal');
+}
+
+async function deleteDriverFromModal() {
+  const editId = document.getElementById('drv-edit-id').value;
+  if (!editId) return;
+  const first = document.getElementById('drv-firstname').value.trim();
+  const last = document.getElementById('drv-lastname').value.trim();
+  const fullName = (first + ' ' + last).trim() || editId;
+  await deleteDriver(editId, fullName);
+  // deleteDriver shows a confirm prompt and toast; close the modal if the driver was actually removed
+  const stillThere = await dbGet('drivers', editId);
+  if (!stillThere) closeModal('driver-modal');
 }
 
 async function openDriverDetail(id) {
