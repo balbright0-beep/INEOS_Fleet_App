@@ -574,6 +574,7 @@ input[type="file"]{display:none}
         <div class="tab active" onclick="switchSettingsTab('data')">Import / Export</div>
         <div class="tab" onclick="switchSettingsTab('config')">Program Config</div>
         <div class="tab" onclick="switchSettingsTab('dealers')">Dealer Roster</div>
+        <div class="tab" onclick="switchSettingsTab('users')">User Management</div>
         <div class="tab" onclick="switchSettingsTab('user')">User Preferences</div>
       </div>
       <div id="settings-data" class="settings-tab">
@@ -653,6 +654,23 @@ input[type="file"]{display:none}
         <div class="table-wrap">
           <table><thead><tr><th>Dealer Name</th><th>Code</th><th>Region</th><th>RBM</th><th>Fleet Units</th><th>Actions</th></tr></thead>
           <tbody id="dealer-table"></tbody></table>
+        </div>
+      </div>
+      <div id="settings-users" class="settings-tab" style="display:none">
+        <div class="card">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:12px">
+            <div>
+              <h3 class="section-title" style="margin-bottom:4px">User Management</h3>
+              <p style="font-size:13px;color:var(--iron-smoke)">Create, delete, and reset passwords for users who can sign in to Hub-connected apps (Fleet, Allocations, Incentives, Dashboard). Requires admin privileges.</p>
+            </div>
+            <button class="btn btn-primary" onclick="openUserModal()">+ Add User</button>
+          </div>
+          <div id="users-error" style="display:none;background:#CC0200;color:#fff;padding:10px 14px;border-radius:4px;font-size:13px;margin-bottom:12px"></div>
+          <div class="table-wrap">
+            <table><thead><tr>
+              <th>Username</th><th>Role</th><th>Dealer</th><th>Created</th><th style="width:220px">Actions</th>
+            </tr></thead><tbody id="users-table"></tbody></table>
+          </div>
         </div>
       </div>
       <div id="settings-user" class="settings-tab" style="display:none">
@@ -1008,6 +1026,47 @@ input[type="file"]{display:none}
   </div>
 </div>
 
+<!-- User Management Modal -->
+<div class="modal-overlay" id="user-modal">
+  <div class="modal">
+    <div class="modal-title" id="user-modal-title">Add User</div>
+    <div id="user-modal-error" style="display:none;background:#CC0200;color:#fff;padding:8px 12px;border-radius:4px;font-size:12px;margin-bottom:12px"></div>
+    <input type="hidden" id="usr-edit-id">
+    <div class="form-group"><label class="form-label">Username</label><input type="text" class="form-input" id="usr-username" placeholder="e.g. jane.doe"></div>
+    <div class="form-group"><label class="form-label" id="usr-password-label">Password</label><input type="password" class="form-input" id="usr-password" placeholder="At least 8 characters"></div>
+    <div class="form-row">
+      <div class="form-group"><label class="form-label">Role</label>
+        <select class="form-select" id="usr-role" onchange="onUserRoleChange()">
+          <option value="admin">Admin (full access + user management)</option>
+          <option value="internal" selected>Internal (INEOS staff)</option>
+          <option value="dealer">Dealer (dealer staff)</option>
+        </select>
+      </div>
+      <div class="form-group" id="usr-dealer-group" style="display:none"><label class="form-label">Dealer Name</label><input type="text" class="form-input" id="usr-dealer" placeholder="e.g. Mossy INEOS Grenadier TX"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="closeModal('user-modal')">Cancel</button>
+      <button class="btn btn-primary" id="usr-save-btn" onclick="saveUser()">Save User</button>
+    </div>
+  </div>
+</div>
+
+<!-- Reset Password Modal -->
+<div class="modal-overlay" id="reset-password-modal">
+  <div class="modal">
+    <div class="modal-title">Reset Password</div>
+    <div id="reset-pw-error" style="display:none;background:#CC0200;color:#fff;padding:8px 12px;border-radius:4px;font-size:12px;margin-bottom:12px"></div>
+    <input type="hidden" id="reset-pw-user-id">
+    <p style="font-size:13px;color:var(--iron-smoke);margin-bottom:12px">Resetting password for <strong id="reset-pw-username"></strong></p>
+    <div class="form-group"><label class="form-label">New Password</label><input type="password" class="form-input" id="reset-pw-new" placeholder="At least 8 characters"></div>
+    <div class="form-group"><label class="form-label">Confirm Password</label><input type="password" class="form-input" id="reset-pw-confirm" placeholder="Re-enter password"></div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="closeModal('reset-password-modal')">Cancel</button>
+      <button class="btn btn-danger" onclick="doResetPassword()">Reset Password</button>
+    </div>
+  </div>
+</div>
+
 <!-- Dealer Modal -->
 <div class="modal-overlay" id="dealer-modal">
   <div class="modal">
@@ -1056,7 +1115,6 @@ input[type="file"]{display:none}
     <input id="login-pass" type="password" placeholder="Password" style="width:100%;padding:10px 12px;border:1px solid var(--dove);border-radius:2px;font-size:14px;margin-bottom:16px;font-family:var(--font-body)">
     <div id="login-error" style="color:var(--error);font-size:12px;margin-bottom:12px;display:none"></div>
     <button onclick="doLogin()" style="width:100%;padding:10px;background:var(--charcoal);color:var(--white);border:none;border-radius:2px;font-size:14px;font-weight:600;cursor:pointer;font-family:var(--font-body)">Sign In</button>
-    <p style="color:var(--silver-dust);font-size:11px;margin-top:16px">Default: admin / admin123</p>
   </div>
 </div>
 
@@ -2014,6 +2072,166 @@ function switchSettingsTab(tab) {
   document.querySelectorAll('.settings-tab').forEach(t => t.style.display = 'none');
   event.target.classList.add('active');
   document.getElementById('settings-' + tab).style.display = 'block';
+  if (tab === 'users') renderUsers();
+}
+
+// ===== USER MANAGEMENT =====
+async function renderUsers() {
+  const errEl = document.getElementById('users-error');
+  errEl.style.display = 'none';
+  const tbody = document.getElementById('users-table');
+  tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--silver-dust);padding:20px">Loading users…</td></tr>';
+  try {
+    const r = await fetch('/api/users', { headers: { 'Authorization': 'Bearer ' + (_authToken || '') } });
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}));
+      const msg = err.detail || ('HTTP ' + r.status);
+      if (r.status === 403 || (typeof msg === 'string' && msg.toLowerCase().includes('admin'))) {
+        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--silver-dust);padding:20px">You need admin privileges to manage users.</td></tr>';
+      } else {
+        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--silver-dust);padding:20px">Could not load users: ' + msg + '</td></tr>';
+      }
+      return;
+    }
+    const users = await r.json();
+    if (!users.length) {
+      tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--silver-dust);padding:20px">No users</td></tr>';
+      return;
+    }
+    tbody.innerHTML = users.map(u => `
+      <tr>
+        <td style="font-weight:500">${u.username}</td>
+        <td>${roleBadge(u.role)}</td>
+        <td>${u.dealer_name || '-'}</td>
+        <td style="font-size:12px;color:var(--iron-smoke)">${u.created_at ? fmtDate((u.created_at || '').slice(0,10)) : '-'}</td>
+        <td>
+          <button class="btn btn-outline btn-sm" onclick="openResetPasswordModal(${u.id}, '${u.username.replace(/'/g, "\\'")}')">Reset PW</button>
+          ${u.role === 'admin' ? '' : `<button class="btn btn-danger btn-sm" onclick="deleteUser(${u.id}, '${u.username.replace(/'/g, "\\'")}')">Delete</button>`}
+        </td>
+      </tr>
+    `).join('');
+  } catch (e) {
+    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--silver-dust);padding:20px">Connection error: ' + e.message + '</td></tr>';
+  }
+}
+
+function roleBadge(role) {
+  const map = {
+    admin:    'background:#FF4639;color:#fff',
+    internal: 'background:#2C931E;color:#fff',
+    dealer:   'background:#3b82f6;color:#fff',
+  };
+  return `<span class="badge" style="${map[role] || 'background:#6b7280;color:#fff'}">${role || 'unknown'}</span>`;
+}
+
+function openUserModal() {
+  document.getElementById('user-modal-title').textContent = 'Add User';
+  document.getElementById('user-modal-error').style.display = 'none';
+  document.getElementById('usr-edit-id').value = '';
+  document.getElementById('usr-username').value = '';
+  document.getElementById('usr-password').value = '';
+  document.getElementById('usr-password-label').textContent = 'Password';
+  document.getElementById('usr-role').value = 'internal';
+  document.getElementById('usr-dealer').value = '';
+  onUserRoleChange();
+  openModal('user-modal');
+}
+
+function onUserRoleChange() {
+  const role = document.getElementById('usr-role').value;
+  document.getElementById('usr-dealer-group').style.display = role === 'dealer' ? 'block' : 'none';
+}
+
+async function saveUser() {
+  const errEl = document.getElementById('user-modal-error');
+  errEl.style.display = 'none';
+  const username = document.getElementById('usr-username').value.trim();
+  const password = document.getElementById('usr-password').value;
+  const role = document.getElementById('usr-role').value;
+  const dealer = document.getElementById('usr-dealer').value.trim();
+
+  if (!username) { errEl.textContent = 'Username is required'; errEl.style.display = 'block'; return; }
+  if (!password || password.length < 8) { errEl.textContent = 'Password must be at least 8 characters'; errEl.style.display = 'block'; return; }
+  if (role === 'dealer' && !dealer) { errEl.textContent = 'Dealer name is required for dealer accounts'; errEl.style.display = 'block'; return; }
+
+  const btn = document.getElementById('usr-save-btn');
+  btn.disabled = true; btn.textContent = 'Saving…';
+  try {
+    const r = await fetch('/api/users', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + (_authToken || '') },
+      body: JSON.stringify({ username, password, role, dealer_name: role === 'dealer' ? dealer : null })
+    });
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}));
+      errEl.textContent = err.detail || ('Failed (HTTP ' + r.status + ')');
+      errEl.style.display = 'block';
+      return;
+    }
+    closeModal('user-modal');
+    toast('User created', 'success');
+    renderUsers();
+  } catch (e) {
+    errEl.textContent = 'Connection error: ' + e.message;
+    errEl.style.display = 'block';
+  } finally {
+    btn.disabled = false; btn.textContent = 'Save User';
+  }
+}
+
+async function deleteUser(userId, username) {
+  if (!confirm(`Delete user "${username}"? This cannot be undone.`)) return;
+  try {
+    const r = await fetch('/api/users/' + userId, {
+      method: 'DELETE',
+      headers: { 'Authorization': 'Bearer ' + (_authToken || '') }
+    });
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}));
+      return toast(err.detail || 'Delete failed', 'error');
+    }
+    toast('User deleted', 'success');
+    renderUsers();
+  } catch (e) {
+    toast('Connection error: ' + e.message, 'error');
+  }
+}
+
+function openResetPasswordModal(userId, username) {
+  document.getElementById('reset-pw-error').style.display = 'none';
+  document.getElementById('reset-pw-user-id').value = userId;
+  document.getElementById('reset-pw-username').textContent = username;
+  document.getElementById('reset-pw-new').value = '';
+  document.getElementById('reset-pw-confirm').value = '';
+  openModal('reset-password-modal');
+}
+
+async function doResetPassword() {
+  const errEl = document.getElementById('reset-pw-error');
+  errEl.style.display = 'none';
+  const userId = document.getElementById('reset-pw-user-id').value;
+  const newPw = document.getElementById('reset-pw-new').value;
+  const confirmPw = document.getElementById('reset-pw-confirm').value;
+  if (!newPw || newPw.length < 8) { errEl.textContent = 'Password must be at least 8 characters'; errEl.style.display = 'block'; return; }
+  if (newPw !== confirmPw) { errEl.textContent = 'Passwords do not match'; errEl.style.display = 'block'; return; }
+  try {
+    const r = await fetch('/api/users/' + userId + '/reset-password', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + (_authToken || '') },
+      body: JSON.stringify({ password: newPw })
+    });
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}));
+      errEl.textContent = err.detail || 'Reset failed';
+      errEl.style.display = 'block';
+      return;
+    }
+    closeModal('reset-password-modal');
+    toast('Password reset', 'success');
+  } catch (e) {
+    errEl.textContent = 'Connection error: ' + e.message;
+    errEl.style.display = 'block';
+  }
 }
 
 async function saveConfig() {

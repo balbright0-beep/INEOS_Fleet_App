@@ -30,6 +30,10 @@ PLATFORM_ME_URL = os.environ.get(
     "PLATFORM_ME_URL",
     "https://ineos-americas-platform.onrender.com/api/auth/me",
 )
+PLATFORM_BASE_URL = os.environ.get(
+    "PLATFORM_BASE_URL",
+    "https://ineos-americas-platform.onrender.com",
+)
 ALLOW_LOCAL_FALLBACK = os.environ.get("ALLOW_LOCAL_FALLBACK", "true").lower() == "true"
 
 engine = create_engine(DATABASE_URL, pool_pre_ping=True)
@@ -218,6 +222,61 @@ async def save_data(request: Request, user: str = Depends(get_current_user), db:
     record.updated_at = datetime.utcnow().isoformat()
     db.commit()
     return {"ok": True, "updated_at": record.updated_at}
+
+
+# ===== User Management (proxied to Platform admin API) =====
+def _proxy_platform_request(method: str, path: str, request: Request, body: dict | None = None):
+    """
+    Forward a request to the Platform backend, carrying the caller's Authorization
+    header. Used so the Fleet App can surface Platform admin endpoints without
+    storing platform credentials locally.
+    """
+    auth = request.headers.get("Authorization", "")
+    if not auth:
+        raise HTTPException(401, "Not authenticated")
+    url = PLATFORM_BASE_URL.rstrip("/") + path
+    data = json.dumps(body).encode("utf-8") if body is not None else None
+    req = urllib.request.Request(
+        url,
+        data=data,
+        headers={"Authorization": auth, "Content-Type": "application/json"},
+        method=method,
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            raw = resp.read().decode("utf-8")
+            return json.loads(raw) if raw else {}
+    except urllib.error.HTTPError as e:
+        detail = e.read().decode("utf-8", errors="replace")[:500]
+        try:
+            j = json.loads(detail)
+            raise HTTPException(e.code, j.get("detail", detail))
+        except json.JSONDecodeError:
+            raise HTTPException(e.code, detail)
+    except Exception as e:
+        raise HTTPException(502, f"Platform request failed: {e}")
+
+
+@app.get("/api/users")
+def list_platform_users(request: Request, user: str = Depends(get_current_user)):
+    return _proxy_platform_request("GET", "/api/admin/users", request)
+
+
+@app.post("/api/users")
+async def create_platform_user(request: Request, user: str = Depends(get_current_user)):
+    body = await request.json()
+    return _proxy_platform_request("POST", "/api/admin/users", request, body)
+
+
+@app.delete("/api/users/{user_id}")
+def delete_platform_user(user_id: int, request: Request, user: str = Depends(get_current_user)):
+    return _proxy_platform_request("DELETE", f"/api/admin/users/{user_id}", request)
+
+
+@app.put("/api/users/{user_id}/reset-password")
+async def reset_platform_user_password(user_id: int, request: Request, user: str = Depends(get_current_user)):
+    body = await request.json()
+    return _proxy_platform_request("PUT", f"/api/admin/users/{user_id}/reset-password", request, body)
 
 
 # ===== MVRcheck integration =====
