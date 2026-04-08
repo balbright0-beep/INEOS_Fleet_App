@@ -30,18 +30,6 @@ PLATFORM_ME_URL = os.environ.get(
     "PLATFORM_ME_URL",
     "https://ineos-americas-platform.onrender.com/api/auth/me",
 )
-PLATFORM_VERIFY_MFA_URL = os.environ.get(
-    "PLATFORM_VERIFY_MFA_URL",
-    "https://ineos-americas-platform.onrender.com/api/auth/verify-mfa",
-)
-PLATFORM_RESEND_MFA_URL = os.environ.get(
-    "PLATFORM_RESEND_MFA_URL",
-    "https://ineos-americas-platform.onrender.com/api/auth/resend-mfa",
-)
-PLATFORM_BOOTSTRAP_EMAIL_URL = os.environ.get(
-    "PLATFORM_BOOTSTRAP_EMAIL_URL",
-    "https://ineos-americas-platform.onrender.com/api/auth/bootstrap-email",
-)
 ALLOW_LOCAL_FALLBACK = os.environ.get("ALLOW_LOCAL_FALLBACK", "true").lower() == "true"
 
 engine = create_engine(DATABASE_URL, pool_pre_ping=True)
@@ -129,41 +117,6 @@ def _platform_login(data: dict):
     except Exception as e:
         # Network failure / DNS / timeout — caller decides whether to fall back
         raise HTTPException(503, f"Platform auth unreachable: {e}")
-
-
-def _platform_passthrough(url: str, data: dict):
-    payload = json.dumps(data).encode("utf-8")
-    req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"}, method="POST")
-    try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            return json.loads(resp.read().decode("utf-8"))
-    except urllib.error.HTTPError as e:
-        detail = e.read().decode("utf-8", errors="replace")[:400]
-        try:
-            j = json.loads(detail)
-            raise HTTPException(e.code, j.get("detail", detail))
-        except json.JSONDecodeError:
-            raise HTTPException(e.code, detail)
-    except Exception as e:
-        raise HTTPException(502, f"Platform request failed: {e}")
-
-
-@app.post("/api/verify-mfa")
-def verify_mfa(data: dict):
-    """Proxy MFA verification to the Platform."""
-    return _platform_passthrough(PLATFORM_VERIFY_MFA_URL, data)
-
-
-@app.post("/api/resend-mfa")
-def resend_mfa(data: dict):
-    """Proxy MFA resend to the Platform."""
-    return _platform_passthrough(PLATFORM_RESEND_MFA_URL, data)
-
-
-@app.post("/api/bootstrap-admin-email")
-def bootstrap_admin_email(data: dict):
-    """Proxy first-time email setup for admins to the Platform."""
-    return _platform_passthrough(PLATFORM_BOOTSTRAP_EMAIL_URL, data)
 
 
 @app.post("/api/login")

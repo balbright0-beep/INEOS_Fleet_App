@@ -886,36 +886,11 @@ input[type="file"]{display:none}
       <span style="font-family:var(--font-title);font-size:22px;letter-spacing:1px">INEOS GRENADIER</span>
     </div>
     <p style="color:var(--iron-smoke);font-size:13px;margin-bottom:24px">Fleet Management System</p>
-
-    <!-- Step 1: username + password -->
-    <div id="login-step-password">
-      <input id="login-user" placeholder="Username" style="width:100%;padding:10px 12px;border:1px solid var(--dove);border-radius:2px;font-size:14px;margin-bottom:12px;font-family:var(--font-body)">
-      <input id="login-pass" type="password" placeholder="Password" style="width:100%;padding:10px 12px;border:1px solid var(--dove);border-radius:2px;font-size:14px;margin-bottom:16px;font-family:var(--font-body)">
-      <div id="login-error" style="color:var(--error);font-size:12px;margin-bottom:12px;display:none"></div>
-      <button onclick="doLogin()" style="width:100%;padding:10px;background:var(--charcoal);color:var(--white);border:none;border-radius:2px;font-size:14px;font-weight:600;cursor:pointer;font-family:var(--font-body)">Sign In</button>
-      <p style="color:var(--silver-dust);font-size:11px;margin-top:16px">Hub accounts · admin accounts require a verification code</p>
-    </div>
-
-    <!-- Step 2: MFA code -->
-    <div id="login-step-mfa" style="display:none">
-      <p style="color:var(--iron-smoke);font-size:13px;margin-bottom:8px">Check your email for a 6-digit verification code.</p>
-      <p id="login-mfa-hint" style="color:var(--silver-dust);font-size:11px;margin-bottom:16px"></p>
-      <input id="login-mfa-code" inputmode="numeric" maxlength="6" pattern="[0-9]*" placeholder="000000" style="width:100%;padding:12px;border:1px solid var(--dove);border-radius:2px;font-size:22px;font-weight:700;text-align:center;letter-spacing:8px;margin-bottom:12px;font-family:monospace">
-      <div id="login-mfa-error" style="color:var(--error);font-size:12px;margin-bottom:12px;display:none"></div>
-      <button onclick="doVerifyMfa()" style="width:100%;padding:10px;background:var(--charcoal);color:var(--white);border:none;border-radius:2px;font-size:14px;font-weight:600;cursor:pointer;font-family:var(--font-body);margin-bottom:8px">Verify Code</button>
-      <div style="display:flex;gap:8px;justify-content:space-between;font-size:12px">
-        <a href="#" onclick="resendMfaCode();return false" style="color:var(--flare-red);text-decoration:none">Resend code</a>
-        <a href="#" onclick="cancelMfa();return false" style="color:var(--silver-dust);text-decoration:none">Cancel</a>
-      </div>
-    </div>
-
-    <!-- Step 3: No email on file (admin forced to add one) -->
-    <div id="login-step-no-email" style="display:none">
-      <p style="color:var(--error);font-size:13px;margin-bottom:16px">⚠ Your admin account has no email address on file, so we can't send a verification code. Add one below — this is a one-time setup.</p>
-      <input id="login-new-email" type="email" placeholder="you@ineos.com" style="width:100%;padding:10px 12px;border:1px solid var(--dove);border-radius:2px;font-size:14px;margin-bottom:12px;font-family:var(--font-body)">
-      <div id="login-email-error" style="color:var(--error);font-size:12px;margin-bottom:12px;display:none"></div>
-      <button onclick="saveEmailAndRetry()" style="width:100%;padding:10px;background:var(--charcoal);color:var(--white);border:none;border-radius:2px;font-size:14px;font-weight:600;cursor:pointer;font-family:var(--font-body)">Save & Continue</button>
-    </div>
+    <input id="login-user" placeholder="Username" style="width:100%;padding:10px 12px;border:1px solid var(--dove);border-radius:2px;font-size:14px;margin-bottom:12px;font-family:var(--font-body)">
+    <input id="login-pass" type="password" placeholder="Password" style="width:100%;padding:10px 12px;border:1px solid var(--dove);border-radius:2px;font-size:14px;margin-bottom:16px;font-family:var(--font-body)">
+    <div id="login-error" style="color:var(--error);font-size:12px;margin-bottom:12px;display:none"></div>
+    <button onclick="doLogin()" style="width:100%;padding:10px;background:var(--charcoal);color:var(--white);border:none;border-radius:2px;font-size:14px;font-weight:600;cursor:pointer;font-family:var(--font-body)">Sign In</button>
+    <p style="color:var(--silver-dust);font-size:11px;margin-top:16px">Default: admin / admin123</p>
   </div>
 </div>
 
@@ -923,154 +898,27 @@ input[type="file"]{display:none}
 // ===== SERVER SYNC LAYER =====
 let _authToken = sessionStorage.getItem('fleet_token');
 
-let _mfaChallenge = null;       // { challengeToken, emailHint, hasEmail }
-let _pendingCreds = null;       // { username, password } — kept only in memory for retry after setting email
-
-function _showStep(step) {
-  document.getElementById('login-step-password').style.display = step === 'password' ? 'block' : 'none';
-  document.getElementById('login-step-mfa').style.display      = step === 'mfa'      ? 'block' : 'none';
-  document.getElementById('login-step-no-email').style.display = step === 'no-email' ? 'block' : 'none';
-}
-
 async function doLogin() {
-  const user = document.getElementById('login-user').value.trim();
+  const user = document.getElementById('login-user').value;
   const pass = document.getElementById('login-pass').value;
   const errEl = document.getElementById('login-error');
   errEl.style.display = 'none';
-  if (!user || !pass) { errEl.textContent = 'Enter a username and password'; errEl.style.display = 'block'; return; }
   try {
     const r = await fetch('/api/login', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({username: user, password: pass})
     });
-    if (r.status === 401) { errEl.textContent = 'Invalid credentials'; errEl.style.display = 'block'; return; }
-    if (!r.ok) { errEl.textContent = 'Sign-in unavailable (' + r.status + ')'; errEl.style.display = 'block'; return; }
+    if (!r.ok) { errEl.textContent = 'Invalid credentials'; errEl.style.display = 'block'; return; }
     const data = await r.json();
-
-    // MFA required?
-    if (data.mfaRequired) {
-      _pendingCreds = { username: user, password: pass };
-      if (!data.hasEmail) {
-        // Admin has no email on file yet — first-time setup
-        _showStep('no-email');
-        return;
-      }
-      _mfaChallenge = { challengeToken: data.challengeToken, emailHint: data.emailHint };
-      document.getElementById('login-mfa-hint').textContent = 'Code sent to ' + (data.emailHint || 'your email') + ' · expires in ' + (data.expiresInMinutes || 5) + ' min';
-      document.getElementById('login-mfa-code').value = '';
-      _showStep('mfa');
-      setTimeout(() => document.getElementById('login-mfa-code').focus(), 50);
-      return;
-    }
-
-    // No MFA — fall through to session token
-    _pendingCreds = null;
     _authToken = data.token;
     sessionStorage.setItem('fleet_token', data.token);
     document.getElementById('login-overlay').style.display = 'none';
     await syncFromServer();
-  } catch (e) { errEl.textContent = 'Connection error'; errEl.style.display = 'block'; }
-}
-
-async function doVerifyMfa() {
-  const code = document.getElementById('login-mfa-code').value.trim();
-  const errEl = document.getElementById('login-mfa-error');
-  errEl.style.display = 'none';
-  if (code.length !== 6) { errEl.textContent = 'Enter the 6-digit code'; errEl.style.display = 'block'; return; }
-  if (!_mfaChallenge) { cancelMfa(); return; }
-  try {
-    const r = await fetch('/api/verify-mfa', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({challengeToken: _mfaChallenge.challengeToken, code})
-    });
-    if (!r.ok) {
-      const j = await r.json().catch(() => ({}));
-      errEl.textContent = j.detail || 'Verification failed';
-      errEl.style.display = 'block';
-      return;
-    }
-    const data = await r.json();
-    _authToken = data.token;
-    sessionStorage.setItem('fleet_token', data.token);
-    _mfaChallenge = null;
-    _pendingCreds = null;
-    document.getElementById('login-overlay').style.display = 'none';
-    await syncFromServer();
-  } catch (e) { errEl.textContent = 'Connection error'; errEl.style.display = 'block'; }
-}
-
-async function resendMfaCode() {
-  if (!_mfaChallenge) return;
-  const errEl = document.getElementById('login-mfa-error');
-  errEl.style.display = 'none';
-  try {
-    const r = await fetch('/api/resend-mfa', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({challengeToken: _mfaChallenge.challengeToken})
-    });
-    if (!r.ok) {
-      const j = await r.json().catch(() => ({}));
-      errEl.textContent = j.detail || 'Could not resend — please start over';
-      errEl.style.display = 'block';
-      return;
-    }
-    errEl.textContent = 'New code sent';
-    errEl.style.color = 'var(--success)';
-    errEl.style.display = 'block';
-    setTimeout(() => { errEl.style.display = 'none'; errEl.style.color = 'var(--error)'; }, 3000);
-  } catch (e) { errEl.textContent = 'Connection error'; errEl.style.display = 'block'; }
-}
-
-function cancelMfa() {
-  _mfaChallenge = null;
-  _pendingCreds = null;
-  document.getElementById('login-mfa-code').value = '';
-  _showStep('password');
-}
-
-async function saveEmailAndRetry() {
-  /* First-time admin setup: user has no email and MFA is required. We
-     briefly log them in with a temporary bypass — but since MFA is enforced
-     server-side, we have to get a token another way. The cleanest path:
-     let the platform dev-mode log the code to stdout, and the admin reads
-     it. Instead, we POST the email to a pre-auth endpoint that accepts
-     username+password in the same call. */
-  const email = document.getElementById('login-new-email').value.trim();
-  const errEl = document.getElementById('login-email-error');
-  errEl.style.display = 'none';
-  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { errEl.textContent = 'Enter a valid email'; errEl.style.display = 'block'; return; }
-  if (!_pendingCreds) { cancelMfa(); return; }
-  try {
-    // Hit a helper endpoint that authenticates and sets the email in one call
-    const r = await fetch('/api/bootstrap-admin-email', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ username: _pendingCreds.username, password: _pendingCreds.password, email })
-    });
-    if (!r.ok) {
-      const j = await r.json().catch(() => ({}));
-      errEl.textContent = j.detail || 'Could not save email';
-      errEl.style.display = 'block';
-      return;
-    }
-    // Email is saved — retry the login to trigger a fresh MFA challenge
-    errEl.style.color = 'var(--success)';
-    errEl.textContent = 'Email saved — sending verification code…';
-    errEl.style.display = 'block';
-    setTimeout(async () => {
-      errEl.style.display = 'none';
-      errEl.style.color = 'var(--error)';
-      await doLogin();
-    }, 800);
   } catch (e) { errEl.textContent = 'Connection error'; errEl.style.display = 'block'; }
 }
 
 document.getElementById('login-pass').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
-document.getElementById('login-mfa-code').addEventListener('keydown', e => { if (e.key === 'Enter') doVerifyMfa(); });
-document.getElementById('login-new-email').addEventListener('keydown', e => { if (e.key === 'Enter') saveEmailAndRetry(); });
 
 async function syncFromServer() {
   if (!_authToken) return;
